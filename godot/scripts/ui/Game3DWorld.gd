@@ -59,44 +59,51 @@ func _setup_environment() -> void:
 	var we := WorldEnvironment.new()
 	var env := Environment.new()
 
-	# Soft bright sky.
-	var sky := Sky.new()
-	var skymat := ProceduralSkyMaterial.new()
-	skymat.sky_top_color = Color(0.30, 0.55, 0.85)
-	skymat.sky_horizon_color = Color(0.62, 0.78, 0.92)
-	skymat.ground_bottom_color = Color(0.45, 0.55, 0.65)
-	skymat.ground_horizon_color = Color(0.62, 0.78, 0.92)
-	skymat.energy_multiplier = 0.8
-	sky.sky_material = skymat
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.30
+	# Deep, vibrant ocean-blue background (no bright sky).
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.04, 0.20, 0.38)
 
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_white = 2.0
+	# Controlled ambient fill: lifts shadows so they aren't pitch black,
+	# without washing out the highlights.
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.58, 0.70, 0.84)
+	env.ambient_light_energy = 0.45
 
-	# These three need Forward+/Mobile (a RenderingDevice). Enabling them on
-	# gl_compatibility does nothing harmful but isn't rendered, so guard them.
+	# ACES tonemapping with a slightly reduced exposure for a rich, matte look.
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_exposure = 0.85
+	env.tonemap_white = 1.0
+
+	# SSAO + glow need Forward+/Mobile (a RenderingDevice); guard for GL.
 	if RenderingServer.get_rendering_device() != null:
 		env.ssao_enabled = true
-		env.ssao_radius = 1.0
-		env.ssao_intensity = 2.0
+		env.ssao_radius = 1.2
+		env.ssao_intensity = 2.2
 		env.ssao_detail = 1.0
 		env.glow_enabled = true
-		env.glow_intensity = 0.35
-		env.glow_bloom = 0.1
+		env.glow_intensity = 0.25
+		env.glow_bloom = 0.05
 
 	we.environment = env
 	add_child(we)
 
 func _setup_light() -> void:
+	# Key light — soft, warm, not too strong.
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-55, -45, 0)
-	sun.light_energy = 1.0
-	sun.light_color = Color(1.0, 0.97, 0.9)
+	sun.rotation_degrees = Vector3(-52, -50, 0)
+	sun.light_energy = 0.8
+	sun.light_color = Color(1.0, 0.96, 0.88)
 	sun.shadow_enabled = true
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	sun.light_angular_distance = 1.5   # softer shadow edges
-	sun.shadow_blur = 1.5
+	sun.light_angular_distance = 2.5   # soft shadow edges
+	sun.shadow_blur = 2.0
 	add_child(sun)
+
+	# Cool fill light from the opposite side (no shadows) to open up the
+	# shaded faces — keeps the plastic-toy look from going muddy.
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(-28, 130, 0)
+	fill.light_energy = 0.28
+	fill.light_color = Color(0.78, 0.86, 1.0)
+	fill.shadow_enabled = false
+	add_child(fill)

@@ -14,3 +14,7 @@ build/
 
 # Test artifacts
 tests/board_preview.png
+
+# Stray import files for transient test screenshots
+tests/*.png
+tests/*.png.import

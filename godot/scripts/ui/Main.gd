@@ -10,8 +10,20 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	Net.game_should_start.connect(show_game)
 	Net.server_disconnected.connect(_on_server_disconnected)
-	# Dev/test hook: FARMRUSH_AUTOSTART=1 boots straight into a vs-AI game.
-	if OS.has_environment("FARMRUSH_AUTOSTART") or OS.has_environment("FARMRUSH_SCREENSHOT"):
+	# Dev/test hooks.
+	if OS.has_environment("FARMRUSH_MAINSHOT"):
+		Game.start_single("You", 3)
+		# Auto-play the setup phase so the main-phase action buttons are visible.
+		var guard := 0
+		while Game.state.phase != Consts.Phase.MAIN and guard < 400:
+			guard += 1
+			Game.apply_action(AIBot.choose_action(Game.state))
+		show_game()
+		_grab_screenshot.call_deferred()
+	elif OS.has_environment("FARMRUSH_MENUSHOT"):
+		show_menu()
+		_grab_screenshot.call_deferred()
+	elif OS.has_environment("FARMRUSH_AUTOSTART") or OS.has_environment("FARMRUSH_SCREENSHOT"):
 		Game.start_single("You", 3)
 		show_game()
 		if OS.has_environment("FARMRUSH_SCREENSHOT"):

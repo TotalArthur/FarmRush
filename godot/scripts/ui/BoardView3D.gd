@@ -457,9 +457,10 @@ func _plastic(color: Color) -> StandardMaterial3D:
 		return _mat_cache[key]
 	var m := StandardMaterial3D.new()
 	m.albedo_color = color
-	m.roughness = 0.45
+	# High roughness + disabled specular => matte painted-wood / plastic, no glare.
+	m.roughness = 0.85
 	m.metallic = 0.0
-	m.metallic_specular = 0.6
+	m.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	_mat_cache[key] = m
 	return m
 
@@ -606,9 +607,10 @@ func _spawn_table_and_water() -> void:
 	plane.size = Vector2(60, 60)
 	water.mesh = plane
 	var wm := StandardMaterial3D.new()
-	wm.albedo_color = Color(0.14, 0.42, 0.66)
-	wm.roughness = 0.2
-	wm.metallic = 0.05
+	wm.albedo_color = Color(0.08, 0.28, 0.48)   # deep ocean blue
+	wm.roughness = 0.35
+	wm.metallic = 0.0
+	wm.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 	water.material_override = wm
 	water.position = Vector3(0, WATER_Y, 0)
 	add_child(water)

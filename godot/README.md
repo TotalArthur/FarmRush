@@ -6,6 +6,44 @@ to **Steam** (Windows / macOS / Linux). Same core logic and gameplay as
 digital tabletop** (Pummel Party / Mario Party vibe).
 
 ![board](docs/preview.png)
+![menu](docs/menu.png)
+
+## Modern UI (colonist.io-style)
+
+The interface uses one shared style helper (`UITheme`) for a clean, modern
+browser-game feel — rounded white `StyleBoxFlat` panels with soft drop shadows
+and chunky colored buttons:
+
+- **Start screen** (`MainMenu`): left nav sidebar, **Bots / Casual / Ranked**
+  tabs, a styled mode card (difficulty + opponent count), and a big Start button.
+- **In-game HUD** (`GameScreen`, a transparent `CanvasLayer` overlay):
+  - **Top banner** — current player + prompt.
+  - **Right hub** — a scrolling **Game Log** over a **Players** list (color,
+    name, VP, resource/dev-card counts, knights, Longest Road / Largest Army).
+  - **Bottom action hub** — the active hand as resource chips plus chunky
+    **Roll / Road / Settlement / City / Buy Card / Play Card / Trade / End Turn**
+    buttons that enable only when the action is legal/affordable.
+
+### Editor node tree for the HUD
+
+The HUD is built in code, but the equivalent scene tree is:
+
+```
+GameScreen (Control, anchors Full Rect, mouse_filter = Ignore)
+├─ TopBanner (PanelContainer, top-center)        # StyleBoxFlat: white, radius 14
+│   └─ HBox → [ColorRect swatch] [prompt Label]
+├─ RightHub (PanelContainer, right dock 336px)
+│   └─ VBox
+│        ├─ Label "Game Log"
+│        ├─ PanelContainer (soft)  → RichTextLabel (scrolls, expand)
+│        ├─ Label "Players"
+│        └─ ScrollContainer (expand) → VBox (one PanelContainer row per player)
+├─ ActionHub (PanelContainer, bottom dock, right offset 348px)
+│   └─ VBox
+│        ├─ HBox (Hand)    → [Label "Hand:"] [resource chips ×5]
+│        └─ HBox (Actions) → [Dice Label] [chunky Buttons ×8]
+└─ Toast (Label) + modal overlays (discard / steal / trade / dev / win)
+```
 
 ## 3D tabletop view
 
@@ -98,6 +136,7 @@ godot/
 │   ├── net/NetworkManager.gd  # autoload "Net": host/join + lobby
 │   ├── dice/                  # Dice3D + DiceManager (3D physics dice)
 │   └── ui/
+│       ├── UITheme.gd         # shared StyleBoxFlat styling (panels/buttons/chips)
 │       ├── Main.gd            # screen router (3D by default)
 │       ├── MainMenu.gd, Lobby.gd
 │       ├── GameScreen.gd      # HUD, dialogs, interaction (2D + 3D)
