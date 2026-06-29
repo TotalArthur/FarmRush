@@ -3,7 +3,7 @@ extends Control
 ## Root controller — swaps between the menu, lobby and game screens.
 ## Registered in the "main" group so other screens can call show_menu().
 
-var current: Control
+var current: Node
 
 func _ready() -> void:
 	add_to_group("main")
@@ -29,7 +29,7 @@ func _grab_screenshot() -> void:
 	print("FARMRUSH: screenshot saved")
 	get_tree().quit(0)
 
-func _swap(node: Control) -> void:
+func _swap(node: Node) -> void:
 	if current != null and is_instance_valid(current):
 		current.queue_free()
 	current = node
@@ -48,7 +48,11 @@ func show_lobby() -> void:
 	_swap(l)
 
 func show_game() -> void:
-	_swap(GameScreen.new())
+	# 3D tabletop is the default. Set FARMRUSH_2D=1 to use the flat 2D board.
+	if OS.has_environment("FARMRUSH_2D"):
+		_swap(GameScreen.new())
+	else:
+		_swap(Game3DWorld.new())
 
 func _on_play_single(ai_count: int) -> void:
 	Game.start_single("You", ai_count)

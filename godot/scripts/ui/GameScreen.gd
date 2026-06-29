@@ -4,7 +4,8 @@ extends Control
 ## In-match HUD: the board plus all panels, buttons and dialogs. Reads state
 ## from the Game autoload and sends actions back through Game.apply_action().
 
-var board: BoardView
+var board                       # BoardView (2D) or BoardView3D — set via duck typing
+var external_board = null        # if set, use this 3D board instead of a 2D one
 var players_bar: HBoxContainer
 var prompt_label: Label
 var hand_bar: HBoxContainer
@@ -27,6 +28,8 @@ var _free_road_mode: bool = false
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Let clicks on empty areas fall through to the 3D board behind the HUD.
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_build_ui()
 	Game.state_changed.connect(refresh)
 	Game.action_rejected.connect(_toast)
@@ -40,18 +43,22 @@ func _ready() -> void:
 #  Static layout
 # ===========================================================================
 func _build_ui() -> void:
-	var bg := ColorRect.new()
-	bg.color = Color(0.34, 0.62, 0.86)
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
+	if external_board != null:
+		# 3D board lives in the world tree; the HUD is a transparent overlay.
+		board = external_board
+	else:
+		var bg := ColorRect.new()
+		bg.color = Color(0.34, 0.62, 0.86)
+		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(bg)
 
-	board = BoardView.new()
-	board.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	board.offset_top = 64
-	board.offset_bottom = -96
-	board.offset_right = -230
-	add_child(board)
+		board = BoardView.new()
+		board.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		board.offset_top = 64
+		board.offset_bottom = -96
+		board.offset_right = -230
+		add_child(board)
 
 	# Top players bar.
 	var top := PanelContainer.new()
@@ -74,6 +81,7 @@ func _build_ui() -> void:
 	prompt_label.offset_left = -300
 	prompt_label.offset_right = 300
 	prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	prompt_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	prompt_label.add_theme_font_size_override("font_size", 20)
 	prompt_label.add_theme_color_override("font_color", Color.WHITE)
 	prompt_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
@@ -126,6 +134,7 @@ func _build_ui() -> void:
 	toast_label = Label.new()
 	toast_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	toast_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	toast_label.add_theme_font_size_override("font_size", 22)
 	toast_label.add_theme_color_override("font_color", Color(1, 0.9, 0.6))
 	toast_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
