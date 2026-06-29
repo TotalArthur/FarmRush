@@ -1,0 +1,16 @@
+# Godot 4 import cache + generated files
+.godot/
+.import/
+export.cfg
+export_presets.cfg
+
+# Build / export output
+build/
+*.x86_64
+*.exe
+*.dmg
+*.zip
+*.pck
+
+# Test artifacts
+tests/board_preview.png
