@@ -13,6 +13,7 @@ var dice: DiceManager
 var hud: GameScreen
 
 var _last_dice := Vector2i(-1, -1)
+var _last_current := -1
 
 func _ready() -> void:
 	_setup_environment()
@@ -51,6 +52,23 @@ func _on_state_changed() -> void:
 			dice.throw(Vector3.ZERO)
 	else:
 		_last_dice = Vector2i(-1, -1)
+
+	# On a turn change, drift the camera toward the active player's cluster.
+	if Game.state.current != _last_current:
+		_last_current = Game.state.current
+		_focus_active_player()
+
+func _focus_active_player() -> void:
+	var s := Game.state
+	var seat := s.current
+	var sum := Vector3.ZERO
+	var n := 0
+	for v in s.buildings:
+		if s.buildings[v]["owner"] == seat:
+			sum += board._vertex_world[v]
+			n += 1
+	if n > 0:
+		rig.focus_on(sum / float(n))
 
 # ===========================================================================
 #  Environment & lighting (bright, plastic, toy-like)

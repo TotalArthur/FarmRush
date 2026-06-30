@@ -20,6 +20,10 @@ func _ready() -> void:
 			Game.apply_action(AIBot.choose_action(Game.state))
 		show_game()
 		_grab_screenshot.call_deferred()
+	elif OS.has_environment("HEXBOUND_FXTEST"):
+		Game.start_single("You", 3)
+		show_game()
+		_fx_test.call_deferred()
 	elif OS.has_environment("HEXBOUND_MENUSHOT"):
 		show_menu()
 		_grab_screenshot.call_deferred()
@@ -30,6 +34,21 @@ func _ready() -> void:
 			_grab_screenshot.call_deferred()
 	else:
 		show_menu()
+
+func _fx_test() -> void:
+	# Drive placements with the 3D board live so particle bursts + camera focus
+	# actually fire (exercises the polish code paths). Screenshots near the end.
+	await get_tree().process_frame
+	var guard := 0
+	while Game.state.phase != Consts.Phase.MAIN and guard < 60:
+		guard += 1
+		Game.apply_action(AIBot.choose_action(Game.state))
+		await get_tree().process_frame
+	await get_tree().create_timer(0.4).timeout
+	var img := get_viewport().get_texture().get_image()
+	img.save_png("res://tests/board_preview.png")
+	print("HEXBOUND: screenshot saved")
+	get_tree().quit(0)
 
 func _grab_screenshot() -> void:
 	# Let a few frames render, then save the viewport and quit.

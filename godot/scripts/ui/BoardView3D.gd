@@ -48,6 +48,7 @@ var _hover_hex := -1
 var _hover_vertex := -1
 var _hover_edge := -1
 var _time := 0.0
+var _ready_for_fx := false       # suppress placement bursts during initial build
 
 var _mat_cache := {}
 var _terrain_shader: Shader
@@ -116,7 +117,9 @@ func _build_board() -> void:
 	_road_nodes.clear()
 	_robber_node = _make_robber()
 	add_child(_robber_node)
-	_sync_pieces()
+	_ready_for_fx = false
+	_sync_pieces()            # no confetti for pieces that already existed
+	_ready_for_fx = true
 	_rebuild_highlights()
 
 func _precompute_world(s: GameState) -> void:
@@ -202,25 +205,38 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	var cb: Color
 	var pattern := 0
 	var scale := 6.0
+	# Per-resource material feel: Ore is slightly metallic/glossy; Wheat and
+	# Desert stay fully matte and soft; the rest sit in between.
+	var rough_a := 0.92
+	var rough_b := 0.8
+	var metallic := 0.0
 	match res:
 		Consts.Res.WOOD:
 			ca = Color("236b2a"); cb = Color("46a043"); pattern = 0; scale = 7.0
+			rough_a = 0.9; rough_b = 0.78
 		Consts.Res.SHEEP:
 			ca = Color("69b347"); cb = Color("97cf64"); pattern = 0; scale = 6.0
+			rough_a = 0.9; rough_b = 0.8
 		Consts.Res.WHEAT:
 			ca = Color("cf9c2a"); cb = Color("efc954"); pattern = 0; scale = 8.0
+			rough_a = 0.96; rough_b = 0.92   # completely matte, soft
 		Consts.Res.BRICK:
 			ca = Color("a8482a"); cb = Color("cf7044"); pattern = 1; scale = 6.0
+			rough_a = 0.82; rough_b = 0.66; metallic = 0.05
 		Consts.Res.ORE:
 			ca = Color("646c78"); cb = Color("9aa4af"); pattern = 1; scale = 6.0
+			rough_a = 0.55; rough_b = 0.36; metallic = 0.45   # glossy gleam
 		_: # desert (-1)
 			ca = Color("cbb277"); cb = Color("e6d4a0"); pattern = 2; scale = 5.0
+			rough_a = 0.97; rough_b = 0.93   # completely matte, soft
 	m.set_shader_parameter("color_a", ca)
 	m.set_shader_parameter("color_b", cb)
 	m.set_shader_parameter("noise_scale", scale)
 	m.set_shader_parameter("pattern_type", pattern)
-	m.set_shader_parameter("rough_a", 0.92)
-	m.set_shader_parameter("rough_b", 0.6 if pattern == 1 else 0.8)
+	m.set_shader_parameter("rough_a", rough_a)
+	m.set_shader_parameter("rough_b", rough_b)
+	m.set_shader_parameter("metallic_amt", metallic)
+	m.set_shader_parameter("hex_radius", _r)
 	_mat_cache[key] = m
 	return m
 
@@ -254,6 +270,8 @@ func _sync_pieces() -> void:
 			add_child(node)
 			_settle_nodes[v] = { "node": node, "city": b["city"] }
 			_pop_in(node)
+			if _ready_for_fx:
+				_burst(node.position + Vector3(0, _r * 0.4, 0), col)
 		elif _settle_nodes[v]["city"] != b["city"]:
 			_settle_nodes[v]["node"].queue_free()
 			var node2 := _make_city(col)
@@ -261,6 +279,8 @@ func _sync_pieces() -> void:
 			add_child(node2)
 			_settle_nodes[v] = { "node": node2, "city": true }
 			_pop_in(node2)
+			if _ready_for_fx:
+				_burst(node2.position + Vector3(0, _r * 0.4, 0), col)
 	for e in s.roads:
 		if not _road_nodes.has(e):
 			var edge := s.board.edges[e]
@@ -269,6 +289,8 @@ func _sync_pieces() -> void:
 			add_child(rnode)
 			_road_nodes[e] = rnode
 			_pop_in(rnode)
+			if _ready_for_fx:
+				_burst(rnode.position + Vector3(0, _r * 0.25, 0), col2)
 	if _robber_node != null:
 		var target := _hex_world[s.robber_hex] + Vector3(_r * 0.3, 0.02, _r * 0.1)
 		var tw := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
@@ -278,6 +300,54 @@ func _pop_in(node: Node3D) -> void:
 	node.scale = Vector3.ZERO
 	var tw := create_tween().set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
 	tw.tween_property(node, "scale", Vector3.ONE, PLACE_TIME)
+
+# ===========================================================================
+#  Confetti burst on placement (player-colored, scales down to 0)
+# ===========================================================================
+func _burst(pos: Vector3, color: Color) -> void:
+	var p := CPUParticles3D.new()
+	p.one_shot = true
+	p.explosiveness = 0.95
+	p.amount = 26
+	p.lifetime = 0.7
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = _r * 0.12
+	p.direction = Vector3.UP
+	p.spread = 55.0
+	p.initial_velocity_min = 1.4
+	p.initial_velocity_max = 3.0
+	p.gravity = Vector3(0, -6.5, 0)
+	p.angular_velocity_min = -360.0
+	p.angular_velocity_max = 360.0
+	# Tiny confetti chip that fades from full size to nothing.
+	var chip := BoxMesh.new()
+	chip.size = Vector3(0.05, 0.05, 0.01)
+	var cmat := StandardMaterial3D.new()
+	cmat.vertex_color_use_as_albedo = true
+	cmat.albedo_color = Color.WHITE
+	cmat.emission_enabled = true
+	cmat.emission = color
+	cmat.emission_energy_multiplier = 0.6
+	cmat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	chip.material = cmat
+	p.mesh = chip
+	p.color = color
+	var curve := Curve.new()
+	curve.add_point(Vector2(0.0, 1.0))
+	curve.add_point(Vector2(0.7, 0.9))
+	curve.add_point(Vector2(1.0, 0.0))
+	p.scale_amount_curve = curve
+	p.scale_amount_min = 1.0
+	p.scale_amount_max = 1.6
+	add_child(p)
+	p.global_position = pos
+	p.emitting = true
+	_free_later(p, p.lifetime + 0.4)
+
+func _free_later(node: Node, delay: float) -> void:
+	await get_tree().create_timer(delay).timeout
+	if is_instance_valid(node):
+		node.queue_free()
 
 # ===========================================================================
 #  Per-frame: hover detection + highlight pulse

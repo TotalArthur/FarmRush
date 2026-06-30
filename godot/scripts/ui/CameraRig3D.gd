@@ -25,10 +25,17 @@ extends Node3D
 @export var edge_margin := 24.0
 @export var orbit_speed := 0.008
 
+@export var idle_delay := 2.0       # seconds of no input before drift kicks in
+@export var idle_drift := 0.35      # how far the idle drift offsets the view
+
 var arm: Node3D
 var camera: Camera3D
 var _bounds := Rect2(Vector2(-12, -12), Vector2(24, 24))  # focus clamp (XZ)
 var _orbiting := false
+var _time := 0.0
+var _idle := 0.0                    # 0..1 ramp once the player stops interacting
+var _focus_target := Vector3.ZERO
+var _has_focus := false
 
 func _ready() -> void:
 	arm = Node3D.new()
@@ -57,7 +64,17 @@ func frame_board(board: BoardView3D) -> void:
 	distance = clampf(span * 2.4, min_distance, max_distance)
 	camera.position.z = distance
 
+## Smoothly drift the camera focus toward a world point (active player's
+## settlement cluster). Manual panning cancels it.
+func focus_on(world_pos: Vector3) -> void:
+	_focus_target = Vector3(
+		clampf(world_pos.x, _bounds.position.x, _bounds.position.x + _bounds.size.x),
+		0.0,
+		clampf(world_pos.z, _bounds.position.y, _bounds.position.y + _bounds.size.y))
+	_has_focus = true
+
 func _process(delta: float) -> void:
+	_time += delta
 	var move := Vector2.ZERO
 	move.x += Input.get_axis("ui_left", "ui_right")
 	move.y += Input.get_axis("ui_up", "ui_down")
@@ -74,28 +91,46 @@ func _process(delta: float) -> void:
 		if mp.y < edge_margin: move.y -= 1.0
 		elif mp.y > vp.y - edge_margin: move.y += 1.0
 
-	if move != Vector2.ZERO:
+	var interacting := move != Vector2.ZERO or _orbiting
+	if interacting:
+		_idle = 0.0
+		_has_focus = false   # taking manual control cancels auto-focus
 		move = move.limit_length(1.0)
 		# Pan relative to yaw so "up" is always away from the camera.
 		var yaw := rotation.y
 		var fwd := Vector3(-sin(yaw), 0, -cos(yaw))
 		var right := Vector3(cos(yaw), 0, -sin(yaw))
 		var delta_pos := (right * move.x + fwd * (-move.y)) * pan_speed * delta
-		var focus := position + delta_pos
-		focus.x = clampf(focus.x, _bounds.position.x, _bounds.position.x + _bounds.size.x)
-		focus.z = clampf(focus.z, _bounds.position.y, _bounds.position.y + _bounds.size.y)
-		position = focus
+		_apply_focus(position + delta_pos)
+	else:
+		# Auto-focus toward the active player's cluster.
+		if _has_focus:
+			_apply_focus(position.lerp(_focus_target, 1.0 - exp(-2.5 * delta)))
+		# Ramp up the idle drift after a pause.
+		_idle = min(1.0, _idle + delta / idle_delay)
+
+	# Subtle ambient drift via the camera's view offset (doesn't move the rig,
+	# so it never fights focus or clamping).
+	var d := _idle * idle_drift
+	camera.h_offset = sin(_time * 0.27) * d
+	camera.v_offset = sin(_time * 0.21 + 1.3) * d * 0.6
+
+func _apply_focus(focus: Vector3) -> void:
+	focus.x = clampf(focus.x, _bounds.position.x, _bounds.position.x + _bounds.size.x)
+	focus.z = clampf(focus.z, _bounds.position.y, _bounds.position.y + _bounds.size.y)
+	position = Vector3(focus.x, position.y, focus.z)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
-			_zoom(-zoom_step)
+			_zoom(-zoom_step); _idle = 0.0
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
-			_zoom(zoom_step)
+			_zoom(zoom_step); _idle = 0.0
 		elif event.button_index == MOUSE_BUTTON_MIDDLE:
 			_orbiting = event.pressed
 	elif event is InputEventMouseMotion and _orbiting:
 		rotation.y -= event.relative.x * orbit_speed
+		_idle = 0.0
 
 func _zoom(amount: float) -> void:
 	distance = clampf(distance + amount, min_distance, max_distance)
