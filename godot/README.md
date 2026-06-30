@@ -56,8 +56,11 @@ The board is a 3D scene (`Game3DWorld`) and is the **default** in-game view:
   grass/forest/field, rocky ore/brick, and wavy desert dunes (no textures).
 - **Animated water shader** (`shaders/water.gdshader`) — TIME-driven wave
   displacement and an animated foam ring at the shoreline.
-- **Micro-props**: low-poly pine trees on wood tiles and boulders on ore tiles,
-  clustered away from the settlement corners.
+- **Micro-props**: clean low-poly primitives per resource — pine cone/trunk
+  trees on Wood, stacked brick prisms on Brick, fluffy capsule sheep on
+  Sheep, thin golden stalks on Wheat, blocky dark rocks on Ore — clustered
+  near each tile's center, well clear of the settlement circles on the
+  vertices.
 - **Juicy feedback**: hexes lift on hover (Tween), settlements/roads/cities
   *pop in* with an elastic overshoot, and a translucent glowing **hologram**
   previews your placement under the cursor.

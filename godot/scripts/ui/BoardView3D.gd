@@ -22,9 +22,17 @@ enum PickMode { NONE, SETTLEMENT, CITY, ROAD, ROBBER }
 const WORLD_SCALE := 0.02
 const TILE_HEIGHT := 0.5         # chunky vertical extrusion; also the rim/top
 const WATER_Y := 0.12            # water sits partway up the tile sides
-const TOKEN_LIFT := 0.1          # token height above the solid hex top
+const TOKEN_LIFT := 0.06         # token height above the solid hex top (stamped, not floating)
 const TILE_HOVER_LIFT := 0.12
 const PLACE_TIME := 0.5
+
+# Click/hover detection radii, as a fraction of the hex radius (_r). Generous
+# on purpose: the picker always resolves to whichever valid candidate is
+# *nearest* the ray hit, so a wide catch radius only makes targets easier to
+# hit — it never makes the wrong one win over a closer correct one.
+const HEX_PICK_FRAC := 1.5
+const VERTEX_PICK_FRAC := 0.62
+const EDGE_PICK_FRAC := 0.55
 
 var pick_mode: int = PickMode.NONE
 var acting_seat: int = -1
@@ -112,6 +120,7 @@ func _build_board() -> void:
 			var tok := _make_token(s.hex_token[h])
 			tok.position = Vector3(0, TILE_HEIGHT + TOKEN_LIFT, 0)
 			tile.add_child(tok)
+		_scatter_props(tile, s.hex_res[h], h)
 
 	_settle_nodes.clear()
 	_road_nodes.clear()
@@ -372,13 +381,13 @@ func _update_hover() -> void:
 			_hologram.visible = false
 		return
 	var p: Vector3 = hit
-	_set_hover_hex(_nearest(_hex_world, p, _r * 1.2))
+	_set_hover_hex(_nearest(_hex_world, p, _r * HEX_PICK_FRAC))
 	match pick_mode:
 		PickMode.SETTLEMENT, PickMode.CITY:
-			_hover_vertex = _nearest_in(_vertex_world, p, _r * 0.5, _valid_vertex_set())
+			_hover_vertex = _nearest_in(_vertex_world, p, _r * VERTEX_PICK_FRAC, _valid_vertex_set())
 			_place_hologram_at_vertex(_hover_vertex)
 		PickMode.ROAD:
-			_hover_edge = _nearest_in(_edge_mid_world, p, _r * 0.45, _valid_edge_set())
+			_hover_edge = _nearest_in(_edge_mid_world, p, _r * EDGE_PICK_FRAC, _valid_edge_set())
 			_place_hologram_at_edge(_hover_edge)
 		_:
 			_hover_vertex = -1
@@ -559,11 +568,138 @@ func _make_token(number: int) -> Node3D:
 	lbl.text = str(number)
 	lbl.font_size = 110
 	lbl.pixel_size = _r * 0.006
-	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	# Stamped flat onto the disc, not billboarded — lay the glyph plane down
+	# into the X-Z plane (normal facing +Y) so it never rotates to face the
+	# camera and instead reads like it's printed on the token.
+	lbl.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	lbl.rotation_degrees = Vector3(-90, 0, 0)
 	lbl.modulate = Color("c0392b") if (number == 6 or number == 8) else Color("2c3e50")
-	lbl.position = Vector3(0, _r * 0.12, 0)
+	lbl.position = Vector3(0, cyl.height * 0.5 + 0.005, 0)
 	root.add_child(lbl)
 	return root
+
+## ===========================================================================
+##  Low-poly cartoon props (clean primitive shapes, clustered near tile
+##  center so they never clip into the settlement circles on the vertices,
+##  which sit out at radius _r).
+## ===========================================================================
+const PROP_MAX_FRAC := 0.35   # keep every prop well inside the vertex ring
+
+func _scatter_props(tile: MeshInstance3D, res: int, seed_val: int) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_val
+	match res:
+		Consts.Res.WOOD:
+			for i in range(rng.randi_range(3, 4)):
+				tile.add_child(_make_tree(_prop_pos(rng, 0.32)))
+		Consts.Res.BRICK:
+			_make_brick_pile(tile, rng)
+		Consts.Res.SHEEP:
+			for i in range(rng.randi_range(1, 2)):
+				tile.add_child(_make_sheep(_prop_pos(rng, 0.25)))
+		Consts.Res.WHEAT:
+			for i in range(rng.randi_range(5, 7)):
+				tile.add_child(_make_wheat_stalk(_prop_pos(rng, 0.33)))
+		Consts.Res.ORE:
+			for i in range(rng.randi_range(2, 3)):
+				tile.add_child(_make_ore_rock(_prop_pos(rng, 0.28), rng))
+		_:
+			pass  # desert: bare sand, no props
+
+func _prop_pos(rng: RandomNumberGenerator, max_frac: float) -> Vector3:
+	var ang := rng.randf_range(0.0, TAU)
+	var dist := rng.randf_range(0.0, minf(max_frac, PROP_MAX_FRAC)) * _r
+	return Vector3(cos(ang) * dist, TILE_HEIGHT, sin(ang) * dist)
+
+func _make_tree(pos: Vector3) -> Node3D:
+	var root := Node3D.new()
+	root.position = pos
+	var trunk := MeshInstance3D.new()
+	var tcyl := CylinderMesh.new()
+	tcyl.top_radius = _r * 0.025
+	tcyl.bottom_radius = _r * 0.03
+	tcyl.height = _r * 0.12
+	trunk.mesh = tcyl
+	trunk.material_override = _plastic(Color("6b4226"))
+	trunk.position = Vector3(0, _r * 0.06, 0)
+	root.add_child(trunk)
+	var foliage := MeshInstance3D.new()
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = _r * 0.11
+	cone.height = _r * 0.22
+	cone.radial_segments = 8   # faceted low-poly look
+	foliage.mesh = cone
+	foliage.material_override = _plastic(Color("2f8f3b"))
+	foliage.position = Vector3(0, _r * 0.12 + _r * 0.11, 0)
+	root.add_child(foliage)
+	return root
+
+func _make_brick_pile(tile: MeshInstance3D, rng: RandomNumberGenerator) -> void:
+	var base := _prop_pos(rng, 0.2)
+	var mat := _plastic(Color("a83226"))
+	var offsets: Array[Vector3] = [Vector3(-0.06, 0.0, 0.0), Vector3(0.06, 0.0, 0.0), Vector3(0.0, 0.0, 0.07)]
+	for off in offsets:
+		var b := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(_r * 0.12, _r * 0.06, _r * 0.07)
+		b.mesh = box
+		b.material_override = mat
+		b.position = base + off * _r + Vector3(0, _r * 0.03, 0)
+		b.rotation.y = rng.randf_range(-0.15, 0.15)
+		tile.add_child(b)
+	var top := MeshInstance3D.new()
+	var box2 := BoxMesh.new()
+	box2.size = Vector3(_r * 0.12, _r * 0.06, _r * 0.07)
+	top.mesh = box2
+	top.material_override = mat
+	top.position = base + Vector3(0, _r * 0.09, 0)
+	top.rotation.y = rng.randf_range(-0.2, 0.2)
+	tile.add_child(top)
+
+func _make_sheep(pos: Vector3) -> Node3D:
+	var root := Node3D.new()
+	root.position = pos
+	var body := MeshInstance3D.new()
+	var cap := CapsuleMesh.new()
+	cap.radius = _r * 0.08
+	cap.height = _r * 0.2
+	body.mesh = cap
+	body.material_override = _plastic(Color("f5f5f0"))
+	body.rotation.z = deg_to_rad(90)
+	body.position = Vector3(0, _r * 0.09, 0)
+	root.add_child(body)
+	var head := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = _r * 0.045
+	sph.height = _r * 0.09
+	head.mesh = sph
+	head.material_override = _plastic(Color("2c2c2c"))
+	head.position = Vector3(_r * 0.11, _r * 0.09, 0)
+	root.add_child(head)
+	return root
+
+func _make_wheat_stalk(pos: Vector3) -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = _r * 0.012
+	cyl.bottom_radius = _r * 0.018
+	cyl.height = _r * 0.2
+	m.mesh = cyl
+	m.material_override = _plastic(Color("e0b13a"))
+	m.position = pos + Vector3(0, _r * 0.1, 0)
+	return m
+
+func _make_ore_rock(pos: Vector3, rng: RandomNumberGenerator) -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	var s := _r * rng.randf_range(0.09, 0.14)
+	box.size = Vector3(s, s * rng.randf_range(0.7, 1.0), s * rng.randf_range(0.8, 1.1))
+	m.mesh = box
+	m.material_override = _plastic(Color("4a4d52"))
+	m.position = pos + Vector3(0, box.size.y * 0.5, 0)
+	m.rotation = Vector3(rng.randf_range(-0.2, 0.2), rng.randf_range(0.0, TAU), rng.randf_range(-0.2, 0.2))
+	return m
 
 func _make_marker(pos: Vector3, color: Color = Color(1, 1, 1)) -> MeshInstance3D:
 	var m := MeshInstance3D.new()
