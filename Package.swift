@@ -2,15 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "FarmRush",
+    name: "Hexbound",
     platforms: [
         .iOS(.v16),
         .macOS(.v13)
     ],
     targets: [
         .executableTarget(
-            name: "FarmRush",
-            path: "Sources/FarmRush"
+            name: "Hexbound",
+            path: "Sources/Hexbound"
         )
     ]
 )

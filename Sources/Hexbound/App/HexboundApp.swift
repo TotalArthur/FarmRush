@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct FarmRushApp: App {
+struct HexboundApp: App {
     var body: some Scene {
         WindowGroup {
             MainMenuView()

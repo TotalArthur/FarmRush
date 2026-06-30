@@ -10,14 +10,45 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	Net.game_should_start.connect(show_game)
 	Net.server_disconnected.connect(_on_server_disconnected)
-	# Dev/test hook: FARMRUSH_AUTOSTART=1 boots straight into a vs-AI game.
-	if OS.has_environment("FARMRUSH_AUTOSTART") or OS.has_environment("FARMRUSH_SCREENSHOT"):
+	# Dev/test hooks.
+	if OS.has_environment("HEXBOUND_MAINSHOT"):
+		Game.start_single("You", 3)
+		# Auto-play the setup phase so the main-phase action buttons are visible.
+		var guard := 0
+		while Game.state.phase != Consts.Phase.MAIN and guard < 400:
+			guard += 1
+			Game.apply_action(AIBot.choose_action(Game.state))
+		show_game()
+		_grab_screenshot.call_deferred()
+	elif OS.has_environment("HEXBOUND_FXTEST"):
 		Game.start_single("You", 3)
 		show_game()
-		if OS.has_environment("FARMRUSH_SCREENSHOT"):
+		_fx_test.call_deferred()
+	elif OS.has_environment("HEXBOUND_MENUSHOT"):
+		show_menu()
+		_grab_screenshot.call_deferred()
+	elif OS.has_environment("HEXBOUND_AUTOSTART") or OS.has_environment("HEXBOUND_SCREENSHOT"):
+		Game.start_single("You", 3)
+		show_game()
+		if OS.has_environment("HEXBOUND_SCREENSHOT"):
 			_grab_screenshot.call_deferred()
 	else:
 		show_menu()
+
+func _fx_test() -> void:
+	# Drive placements with the 3D board live so particle bursts + camera focus
+	# actually fire (exercises the polish code paths). Screenshots near the end.
+	await get_tree().process_frame
+	var guard := 0
+	while Game.state.phase != Consts.Phase.MAIN and guard < 60:
+		guard += 1
+		Game.apply_action(AIBot.choose_action(Game.state))
+		await get_tree().process_frame
+	await get_tree().create_timer(0.4).timeout
+	var img := get_viewport().get_texture().get_image()
+	img.save_png("res://tests/board_preview.png")
+	print("HEXBOUND: screenshot saved")
+	get_tree().quit(0)
 
 func _grab_screenshot() -> void:
 	# Let a few frames render, then save the viewport and quit.
@@ -26,7 +57,7 @@ func _grab_screenshot() -> void:
 	await get_tree().create_timer(0.5).timeout
 	var img := get_viewport().get_texture().get_image()
 	img.save_png("res://tests/board_preview.png")
-	print("FARMRUSH: screenshot saved")
+	print("HEXBOUND: screenshot saved")
 	get_tree().quit(0)
 
 func _swap(node: Node) -> void:
@@ -48,8 +79,8 @@ func show_lobby() -> void:
 	_swap(l)
 
 func show_game() -> void:
-	# 3D tabletop is the default. Set FARMRUSH_2D=1 to use the flat 2D board.
-	if OS.has_environment("FARMRUSH_2D"):
+	# 3D tabletop is the default. Set HEXBOUND_2D=1 to use the flat 2D board.
+	if OS.has_environment("HEXBOUND_2D"):
 		_swap(GameScreen.new())
 	else:
 		_swap(Game3DWorld.new())

@@ -1,4 +1,4 @@
-# FarmRush 🌾
+# Hexbound 🌾
 
 A cozy, **Catan-style** hex board game built in **Godot 4** — designed to ship
 to **Steam** (Windows / macOS / Linux). Same core logic and gameplay as
@@ -6,13 +6,58 @@ to **Steam** (Windows / macOS / Linux). Same core logic and gameplay as
 digital tabletop** (Pummel Party / Mario Party vibe).
 
 ![board](docs/preview.png)
+![menu](docs/menu.png)
+
+## Modern UI (colonist.io-style)
+
+The interface uses one shared style helper (`UITheme`) for a clean, modern
+browser-game feel — rounded white `StyleBoxFlat` panels with soft drop shadows
+and chunky colored buttons:
+
+- **Start screen** (`MainMenu`): left nav sidebar, **Bots / Casual / Ranked**
+  tabs, a styled mode card (difficulty + opponent count), and a big Start button.
+- **In-game HUD** (`GameScreen`, a transparent `CanvasLayer` overlay):
+  - **Top banner** — current player + prompt.
+  - **Right hub** — a scrolling **Game Log** over a **Players** list (color,
+    name, VP, resource/dev-card counts, knights, Longest Road / Largest Army).
+  - **Bottom action hub** — the active hand as resource chips plus chunky
+    **Roll / Road / Settlement / City / Buy Card / Play Card / Trade / End Turn**
+    buttons that enable only when the action is legal/affordable.
+
+### Editor node tree for the HUD
+
+The HUD is built in code, but the equivalent scene tree is:
+
+```
+GameScreen (Control, anchors Full Rect, mouse_filter = Ignore)
+├─ TopBanner (PanelContainer, top-center)        # StyleBoxFlat: white, radius 14
+│   └─ HBox → [ColorRect swatch] [prompt Label]
+├─ RightHub (PanelContainer, right dock 336px)
+│   └─ VBox
+│        ├─ Label "Game Log"
+│        ├─ PanelContainer (soft)  → RichTextLabel (scrolls, expand)
+│        ├─ Label "Players"
+│        └─ ScrollContainer (expand) → VBox (one PanelContainer row per player)
+├─ ActionHub (PanelContainer, bottom dock, right offset 348px)
+│   └─ VBox
+│        ├─ HBox (Hand)    → [Label "Hand:"] [resource chips ×5]
+│        └─ HBox (Actions) → [Dice Label] [chunky Buttons ×8]
+└─ Toast (Label) + modal overlays (discard / steal / trade / dev / win)
+```
 
 ## 3D tabletop view
 
 The board is a 3D scene (`Game3DWorld`) and is the **default** in-game view:
 
-- **Chunky hex prisms** generated from the engine's axial coordinates, with the
-  ocean sitting lower than the land tops.
+- **Beveled, two-layer hex tiles** (dirt/stone base + colored top) generated
+  from the engine's axial coordinates, with slightly randomized top vertices so
+  the terrain isn't perfectly flat.
+- **Procedural terrain shaders** (`shaders/terrain.gdshader`) — noise-blended
+  grass/forest/field, rocky ore/brick, and wavy desert dunes (no textures).
+- **Animated water shader** (`shaders/water.gdshader`) — TIME-driven wave
+  displacement and an animated foam ring at the shoreline.
+- **Micro-props**: low-poly pine trees on wood tiles and boulders on ore tiles,
+  clustered away from the settlement corners.
 - **Juicy feedback**: hexes lift on hover (Tween), settlements/roads/cities
   *pop in* with an elastic overshoot, and a translucent glowing **hologram**
   previews your placement under the cursor.
@@ -24,17 +69,22 @@ Camera (`CameraRig3D`): isometric ~55° tabletop view, **WASD / arrows** or
 **edge-scroll** to pan (clamped to the board), **scroll wheel** to zoom, and
 **middle-mouse drag** to orbit.
 
-> The 2D board is still available — launch with `FARMRUSH_2D=1` to use it.
+> The 2D board is still available — launch with `HEXBOUND_2D=1` to use it.
 
 ### Renderer note (for the full toy look)
 
-The project ships on **gl_compatibility** so it runs everywhere. For the premium
-look — **SSAO**, **glow/bloom**, and **depth of field** — switch
-`Project → Project Settings → Rendering → Renderer → Rendering Method` to
-**Forward+**. Those effects are enabled automatically when a Vulkan
-`RenderingDevice` is present (see `Game3DWorld._setup_environment` /
-`CameraRig3D`); soft directional shadows and the bright sky/ambient work on both
-renderers.
+The project ships on **Forward+** (Vulkan) for the premium "toy-box diorama"
+look: deep **SSAO** crevices between tiles, **bloom**, ACES color grading with a
+saturation/contrast pop, soft low-angle directional shadows, and a low-FOV
+telephoto camera. These all live in `Game3DWorld._setup_environment` /
+`_setup_light` and `CameraRig3D`.
+
+SSAO/glow are guarded behind a Vulkan `RenderingDevice`, and the custom shaders
+also run on the **Compatibility (GLES3)** renderer, so if you need to target
+web / very old GPUs you can switch `Project Settings → Rendering → Renderer →
+Rendering Method` back to **gl_compatibility** (or launch with
+`--rendering-method gl_compatibility`); you'll keep the camera, shadows,
+materials and colors but lose SSAO/glow.
 
 ## Game modes
 
@@ -87,6 +137,9 @@ godot/
 ├── scenes/
 │   ├── Main.tscn              # root; swaps Menu / Lobby / Game screens
 │   └── Game3D.tscn            # 3D tabletop world (Game3DWorld)
+├── shaders/
+│   ├── terrain.gdshader       # stylized grass/rock/sand terrain
+│   └── water.gdshader         # animated water + shore foam
 ├── scripts/
 │   ├── core/
 │   │   ├── Consts.gd          # rules constants, resources, costs, colors
@@ -98,6 +151,7 @@ godot/
 │   ├── net/NetworkManager.gd  # autoload "Net": host/join + lobby
 │   ├── dice/                  # Dice3D + DiceManager (3D physics dice)
 │   └── ui/
+│       ├── UITheme.gd         # shared StyleBoxFlat styling (panels/buttons/chips)
 │       ├── Main.gd            # screen router (3D by default)
 │       ├── MainMenu.gd, Lobby.gd
 │       ├── GameScreen.gd      # HUD, dialogs, interaction (2D + 3D)
@@ -120,5 +174,5 @@ so the same code drives local play, the AI, and the networked host.
 godot --headless --script res://tests/sim.gd
 ```
 
-Dev hooks (env vars): `FARMRUSH_AUTOSTART=1` boots straight into a vs-AI game;
-`FARMRUSH_SCREENSHOT=1` saves `tests/board_preview.png` and quits.
+Dev hooks (env vars): `HEXBOUND_AUTOSTART=1` boots straight into a vs-AI game;
+`HEXBOUND_SCREENSHOT=1` saves `tests/board_preview.png` and quits.
