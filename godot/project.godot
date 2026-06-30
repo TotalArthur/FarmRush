@@ -1,12 +1,12 @@
-; Engine configuration file for FarmRush — a Catan-style board game.
+; Engine configuration file for Hexbound — a Catan-style board game.
 ; Open this folder in Godot 4.x (4.2+) to edit, run, and export for Steam.
 
 config_version=5
 
 [application]
 
-config/name="FarmRush"
-config/description="A cozy, Catan-style hex board game with single-player AI, local hotseat, and online multiplayer."
+config/name="Hexbound"
+config/description="A cozy, Catan-style hex board game (Hexbound) with single-player AI, local hotseat, and online multiplayer."
 run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.2")
 config/icon="res://icon.svg"

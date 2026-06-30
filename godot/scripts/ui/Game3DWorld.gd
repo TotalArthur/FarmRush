@@ -74,15 +74,22 @@ func _setup_environment() -> void:
 	env.tonemap_exposure = 0.85
 	env.tonemap_white = 1.0
 
+	# Slight saturation boost for that vibrant "toy box" feel.
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 1.18
+	env.adjustment_contrast = 1.03
+
 	# SSAO + glow need Forward+/Mobile (a RenderingDevice); guard for GL.
 	if RenderingServer.get_rendering_device() != null:
 		env.ssao_enabled = true
 		env.ssao_radius = 1.2
 		env.ssao_intensity = 2.2
 		env.ssao_detail = 1.0
+		# Bloom so emissive holograms / highlights bleed beautifully.
 		env.glow_enabled = true
-		env.glow_intensity = 0.25
-		env.glow_bloom = 0.05
+		env.glow_intensity = 0.35
+		env.glow_bloom = 0.15
+		env.glow_hdr_threshold = 0.9
 
 	we.environment = env
 	add_child(we)

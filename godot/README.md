@@ -1,4 +1,4 @@
-# FarmRush 🌾
+# Hexbound 🌾
 
 A cozy, **Catan-style** hex board game built in **Godot 4** — designed to ship
 to **Steam** (Windows / macOS / Linux). Same core logic and gameplay as
@@ -49,8 +49,15 @@ GameScreen (Control, anchors Full Rect, mouse_filter = Ignore)
 
 The board is a 3D scene (`Game3DWorld`) and is the **default** in-game view:
 
-- **Chunky hex prisms** generated from the engine's axial coordinates, with the
-  ocean sitting lower than the land tops.
+- **Beveled, two-layer hex tiles** (dirt/stone base + colored top) generated
+  from the engine's axial coordinates, with slightly randomized top vertices so
+  the terrain isn't perfectly flat.
+- **Procedural terrain shaders** (`shaders/terrain.gdshader`) — noise-blended
+  grass/forest/field, rocky ore/brick, and wavy desert dunes (no textures).
+- **Animated water shader** (`shaders/water.gdshader`) — TIME-driven wave
+  displacement and an animated foam ring at the shoreline.
+- **Micro-props**: low-poly pine trees on wood tiles and boulders on ore tiles,
+  clustered away from the settlement corners.
 - **Juicy feedback**: hexes lift on hover (Tween), settlements/roads/cities
   *pop in* with an elastic overshoot, and a translucent glowing **hologram**
   previews your placement under the cursor.
@@ -62,7 +69,7 @@ Camera (`CameraRig3D`): isometric ~55° tabletop view, **WASD / arrows** or
 **edge-scroll** to pan (clamped to the board), **scroll wheel** to zoom, and
 **middle-mouse drag** to orbit.
 
-> The 2D board is still available — launch with `FARMRUSH_2D=1` to use it.
+> The 2D board is still available — launch with `HEXBOUND_2D=1` to use it.
 
 ### Renderer note (for the full toy look)
 
@@ -125,6 +132,9 @@ godot/
 ├── scenes/
 │   ├── Main.tscn              # root; swaps Menu / Lobby / Game screens
 │   └── Game3D.tscn            # 3D tabletop world (Game3DWorld)
+├── shaders/
+│   ├── terrain.gdshader       # stylized grass/rock/sand terrain
+│   └── water.gdshader         # animated water + shore foam
 ├── scripts/
 │   ├── core/
 │   │   ├── Consts.gd          # rules constants, resources, costs, colors
@@ -159,5 +169,5 @@ so the same code drives local play, the AI, and the networked host.
 godot --headless --script res://tests/sim.gd
 ```
 
-Dev hooks (env vars): `FARMRUSH_AUTOSTART=1` boots straight into a vs-AI game;
-`FARMRUSH_SCREENSHOT=1` saves `tests/board_preview.png` and quits.
+Dev hooks (env vars): `HEXBOUND_AUTOSTART=1` boots straight into a vs-AI game;
+`HEXBOUND_SCREENSHOT=1` saves `tests/board_preview.png` and quits.

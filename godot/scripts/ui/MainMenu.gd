@@ -81,7 +81,7 @@ func _build_sidebar() -> PanelContainer:
 	var logo := UITheme.heading("🌾", 40, Color("ffd34d"))
 	logo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(logo)
-	var name := UITheme.heading("FARMRUSH", 16, Color.WHITE)
+	var name := UITheme.heading("HEXBOUND", 16, Color.WHITE)
 	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(name)
 	v.add_child(_spacer(20))

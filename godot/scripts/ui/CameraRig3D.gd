@@ -15,7 +15,7 @@ extends Node3D
 ##   - Middle-drag    : orbit (yaw)
 ## Panning is clamped to the board's footprint so you can't lose the table.
 
-@export var pitch_degrees := 55.0
+@export var pitch_degrees := 48.0
 @export var distance := 14.0
 @export var min_distance := 6.0
 @export var max_distance := 26.0

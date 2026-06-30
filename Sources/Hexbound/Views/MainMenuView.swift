@@ -63,7 +63,7 @@ struct MainMenuView: View {
                         Text("🌾")
                             .font(.system(size: 72))
                             .shadow(radius: 4)
-                        Text("FarmRush")
+                        Text("Hexbound")
                             .font(.system(size: 48, weight: .black, design: .rounded))
                             .foregroundStyle(.white)
                             .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
