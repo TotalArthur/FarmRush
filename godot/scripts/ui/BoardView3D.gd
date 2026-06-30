@@ -205,30 +205,25 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	var cb: Color
 	var pattern := 0
 	var scale := 6.0
-	# Per-resource material feel: Ore is slightly metallic/glossy; Wheat and
-	# Desert stay fully matte and soft; the rest sit in between.
-	var rough_a := 0.92
-	var rough_b := 0.8
+	# Polished cartoon finish: smooth satin sheen (roughness ~0.4–0.5) with
+	# bright, saturated colors. Ore is a touch glossier/metallic.
+	var rough_a := 0.5
+	var rough_b := 0.4
 	var metallic := 0.0
 	match res:
-		Consts.Res.WOOD:
-			ca = Color("236b2a"); cb = Color("46a043"); pattern = 0; scale = 7.0
-			rough_a = 0.9; rough_b = 0.78
-		Consts.Res.SHEEP:
-			ca = Color("69b347"); cb = Color("97cf64"); pattern = 0; scale = 6.0
-			rough_a = 0.9; rough_b = 0.8
-		Consts.Res.WHEAT:
-			ca = Color("cf9c2a"); cb = Color("efc954"); pattern = 0; scale = 8.0
-			rough_a = 0.96; rough_b = 0.92   # completely matte, soft
-		Consts.Res.BRICK:
-			ca = Color("a8482a"); cb = Color("cf7044"); pattern = 1; scale = 6.0
-			rough_a = 0.82; rough_b = 0.66; metallic = 0.05
-		Consts.Res.ORE:
-			ca = Color("646c78"); cb = Color("9aa4af"); pattern = 1; scale = 6.0
-			rough_a = 0.55; rough_b = 0.36; metallic = 0.45   # glossy gleam
-		_: # desert (-1)
-			ca = Color("cbb277"); cb = Color("e6d4a0"); pattern = 2; scale = 5.0
-			rough_a = 0.97; rough_b = 0.93   # completely matte, soft
+		Consts.Res.WOOD:        # lush forest green
+			ca = Color("2f8f3b"); cb = Color("5cc24f"); pattern = 0; scale = 7.0
+		Consts.Res.SHEEP:       # bright pasture
+			ca = Color("7ec64a"); cb = Color("aee06a"); pattern = 0; scale = 6.0
+		Consts.Res.WHEAT:       # golden wheat
+			ca = Color("e6b52e"); cb = Color("ffd84a"); pattern = 0; scale = 8.0
+		Consts.Res.BRICK:       # bright terracotta
+			ca = Color("d2632f"); cb = Color("ef8c52"); pattern = 1; scale = 6.0
+		Consts.Res.ORE:         # clean stone with a gleam
+			ca = Color("7d8893"); cb = Color("b6bfc9"); pattern = 1; scale = 6.0
+			rough_a = 0.42; rough_b = 0.30; metallic = 0.30
+		_:                      # desert sand
+			ca = Color("e6cd86"); cb = Color("f6e6b0"); pattern = 2; scale = 5.0
 	m.set_shader_parameter("color_a", ca)
 	m.set_shader_parameter("color_b", cb)
 	m.set_shader_parameter("noise_scale", scale)
@@ -237,6 +232,9 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	m.set_shader_parameter("rough_b", rough_b)
 	m.set_shader_parameter("metallic_amt", metallic)
 	m.set_shader_parameter("hex_radius", _r)
+	# SSAO now does the deep crevice shadows, so ease off the in-shader darken.
+	m.set_shader_parameter("edge_darken", 0.16)
+	m.set_shader_parameter("rim_strength", 0.14)
 	_mat_cache[key] = m
 	return m
 

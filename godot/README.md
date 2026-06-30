@@ -73,13 +73,18 @@ Camera (`CameraRig3D`): isometric ~55° tabletop view, **WASD / arrows** or
 
 ### Renderer note (for the full toy look)
 
-The project ships on **gl_compatibility** so it runs everywhere. For the premium
-look — **SSAO**, **glow/bloom**, and **depth of field** — switch
-`Project → Project Settings → Rendering → Renderer → Rendering Method` to
-**Forward+**. Those effects are enabled automatically when a Vulkan
-`RenderingDevice` is present (see `Game3DWorld._setup_environment` /
-`CameraRig3D`); soft directional shadows and the bright sky/ambient work on both
-renderers.
+The project ships on **Forward+** (Vulkan) for the premium "toy-box diorama"
+look: deep **SSAO** crevices between tiles, **bloom**, ACES color grading with a
+saturation/contrast pop, soft low-angle directional shadows, and a low-FOV
+telephoto camera. These all live in `Game3DWorld._setup_environment` /
+`_setup_light` and `CameraRig3D`.
+
+SSAO/glow are guarded behind a Vulkan `RenderingDevice`, and the custom shaders
+also run on the **Compatibility (GLES3)** renderer, so if you need to target
+web / very old GPUs you can switch `Project Settings → Rendering → Renderer →
+Rendering Method` back to **gl_compatibility** (or launch with
+`--rendering-method gl_compatibility`); you'll keep the camera, shadows,
+materials and colors but lose SSAO/glow.
 
 ## Game modes
 

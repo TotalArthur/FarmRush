@@ -25,6 +25,12 @@ window/stretch/aspect="expand"
 
 [rendering]
 
-renderer/rendering_method="gl_compatibility"
+; Forward+ for the premium desktop/Steam look (SSAO, glow, color grading).
+; Mobile/web fall back to the Compatibility renderer automatically.
+renderer/rendering_method="forward_plus"
 renderer/rendering_method.mobile="gl_compatibility"
+; Crisp-but-soft directional shadows + clean toy edges.
+lights_and_shadows/directional_shadow/size=4096
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3
+anti_aliasing/quality/msaa_3d=2
 environment/defaults/default_clear_color=Color(0.06, 0.2, 0.36, 1)
