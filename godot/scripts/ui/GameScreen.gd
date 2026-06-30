@@ -219,9 +219,15 @@ func _view_seat(s: GameState) -> int:
 	var a := Game.active_human_seat()
 	return a if a != -1 else s.current
 
-func _refresh_players(s: GameState) -> void:
-	for c in players_bar.get_children():
+## Detach children immediately (queue_free alone is deferred, so a second
+## refresh in the same frame would render duplicates — the "double hand" bug).
+func _clear(node: Node) -> void:
+	for c in node.get_children():
+		node.remove_child(c)
 		c.queue_free()
+
+func _refresh_players(s: GameState) -> void:
+	_clear(players_bar)
 	var view := _view_seat(s)
 	for p in s.players:
 		players_bar.add_child(_player_row(s, p, p.id == s.current, p.id == view))
@@ -272,8 +278,7 @@ func _bought_count(p: Player) -> int:
 	return n
 
 func _refresh_hand(s: GameState) -> void:
-	for c in hand_bar.get_children():
-		c.queue_free()
+	_clear(hand_bar)
 	var seat := _view_seat(s)
 	if seat < 0 or seat >= s.players.size():
 		return

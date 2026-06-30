@@ -1,5 +1,7 @@
 shader_type spatial;
-render_mode specular_disabled;
+// cull_disabled guarantees the tile faces are always visible regardless of
+// triangle winding (prevents "hollow frame" tiles across renderers).
+render_mode specular_disabled, cull_disabled;
 
 // Stylized terrain shader for the hex tiles. One shader, driven by uniforms,
 // covers grass/forest/pasture/field (pattern 0), rock/brick/ore (pattern 1),

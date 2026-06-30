@@ -1,12 +1,12 @@
 class_name BoardView3D
 extends Node3D
 
-## Premium 3D "digital tabletop" board (Pummel Party vibe).
+## 3D "digital tabletop" board.
 ##
 ## Renders the SAME board the engine produces (GameState.board / HexBoard) as
-## chunky, beveled, two-layer hex tiles with procedural terrain shaders,
-## animated shader water, and scattered low-poly props. It reads state from the
-## Game autoload and never mutates it.
+## solid, chunky hex tiles sitting in a calm water plane, with floating number
+## tokens, hover lift, and bouncy piece placement. Reads state from the Game
+## autoload; never mutates it.
 ##
 ## Drop-in API match with the 2D BoardView so the HUD (GameScreen) is unchanged:
 ## same PickMode enum, set_mode(), pick_mode/acting_seat, and the
@@ -20,15 +20,11 @@ enum PickMode { NONE, SETTLEMENT, CITY, ROAD, ROBBER }
 
 # --- Tunables (world units) ------------------------------------------------
 const WORLD_SCALE := 0.02
-const TILE_HEIGHT := 0.45        # rim height: where vertices / pieces sit
-const BASE_HEIGHT := 0.20        # top of the dirt/stone base layer
-const TOP_INSET := 0.83          # colored top face radius vs. outer radius
-const TOP_RISE := 0.09           # how much the domed top rises above the rim
-const WATER_Y := 0.12
-const TILE_HOVER_LIFT := 0.14
-const TOKEN_HOVER := 0.52
-const TOKEN_BOB := 0.06
-const PLACE_TIME := 0.55
+const TILE_HEIGHT := 0.5         # chunky vertical extrusion; also the rim/top
+const WATER_Y := 0.12            # water sits partway up the tile sides
+const TOKEN_LIFT := 0.1          # token height above the solid hex top
+const TILE_HOVER_LIFT := 0.12
+const PLACE_TIME := 0.5
 
 var pick_mode: int = PickMode.NONE
 var acting_seat: int = -1
@@ -41,15 +37,12 @@ var _board_ref
 var _board_center := Vector2.ZERO
 var _r := 1.0
 
-var _tile_nodes: Array[Node3D] = []
-var _tile_base_y: Array[float] = []
-var _token_nodes: Array[Node3D] = []
+var _tile_nodes: Array[MeshInstance3D] = []
 var _settle_nodes := {}
 var _road_nodes := {}
 var _robber_node: Node3D
 var _highlights: Node3D
 var _hologram: Node3D
-var _holo_kind := PickMode.NONE
 
 var _hover_hex := -1
 var _hover_vertex := -1
@@ -59,6 +52,7 @@ var _time := 0.0
 var _mat_cache := {}
 var _terrain_shader: Shader
 var _water_shader: Shader
+var _hex_mesh: ArrayMesh
 
 func _ready() -> void:
 	_terrain_shader = load("res://shaders/terrain.gdshader")
@@ -99,25 +93,24 @@ func _build_board() -> void:
 	_board_ref = s.board
 	_clear_children_except_highlights()
 	_precompute_world(s)
-	_spawn_table_and_water()
+	_spawn_water()
 
+	# One shared solid hex prism mesh for every tile.
+	_hex_mesh = _make_hex_prism(_r, TILE_HEIGHT)
 	_tile_nodes.clear()
-	_tile_base_y.clear()
-	_token_nodes.clear()
 	for h in range(s.board.hex_count()):
-		var tile := _make_tile(s.hex_res[h])
+		var tile := MeshInstance3D.new()
+		tile.mesh = _hex_mesh
+		tile.material_override = _terrain_material(s.hex_res[h])
 		tile.position = Vector3(_hex_world[h].x, 0.0, _hex_world[h].z)
 		add_child(tile)
-		_scatter_props(tile, s.hex_res[h])
 		_tile_nodes.append(tile)
-		_tile_base_y.append(0.0)
+		# Number token parented to the tile so it stays 0.1 above the top face
+		# (and rides along on hover).
 		if s.hex_token[h] > 0:
 			var tok := _make_token(s.hex_token[h])
-			tok.position = _hex_world[h] + Vector3(0, TOKEN_HOVER, 0)
-			add_child(tok)
-			_token_nodes.append(tok)
-		else:
-			_token_nodes.append(null)
+			tok.position = Vector3(0, TILE_HEIGHT + TOKEN_LIFT, 0)
+			tile.add_child(tok)
 
 	_settle_nodes.clear()
 	_road_nodes.clear()
@@ -152,82 +145,37 @@ func _clear_children_except_highlights() -> void:
 			c.queue_free()
 
 # ===========================================================================
-#  Tile geometry (layered base + beveled, noisy colored top)
+#  Solid hex prism geometry
 # ===========================================================================
-func _make_tile(res: int) -> Node3D:
-	var root := Node3D.new()
-	# Dirt/stone base layer.
-	var base := MeshInstance3D.new()
-	base.mesh = _make_hex_prism(_r * 0.99, BASE_HEIGHT)
-	base.material_override = _plastic(Color("6b5640") if res != -1 else Color("8a774f"))
-	root.add_child(base)
-	# Colored, beveled, slightly bumpy top layer.
-	var top := MeshInstance3D.new()
-	top.mesh = _make_hex_top(_r)
-	top.material_override = _terrain_material(res)
-	root.add_child(top)
-	return root
-
-func _make_hex_top(radius: float) -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var outer: Array[Vector2] = []
-	var inner: Array[Vector2] = []
-	var inner_y: Array[float] = []
-	for i in range(6):
-		var a := deg_to_rad(60.0 * i - 30.0)
-		var dir := Vector2(cos(a), sin(a))
-		outer.append(dir * radius)
-		inner.append(dir * radius * TOP_INSET)
-		inner_y.append(TILE_HEIGHT + TOP_RISE + randf_range(-0.03, 0.05))  # bumpy top
-	var center := Vector3(0, TILE_HEIGHT + TOP_RISE + randf_range(0.0, 0.04), 0)
-	for i in range(6):
-		var j := (i + 1) % 6
-		var o0 := Vector3(outer[i].x, TILE_HEIGHT, outer[i].y)
-		var o1 := Vector3(outer[j].x, TILE_HEIGHT, outer[j].y)
-		var b0 := Vector3(outer[i].x, BASE_HEIGHT, outer[i].y)
-		var b1 := Vector3(outer[j].x, BASE_HEIGHT, outer[j].y)
-		var n0 := Vector3(inner[i].x, inner_y[i], inner[i].y)
-		var n1 := Vector3(inner[j].x, inner_y[j], inner[j].y)
-		var radial := Vector3(outer[i].x + outer[j].x, 0, outer[i].y + outer[j].y).normalized()
-		_add_quad(st, b0, o0, o1, b1, radial)                       # side wall
-		_add_quad(st, o0, n0, n1, o1, (radial + Vector3.UP).normalized())  # bevel
-		_add_tri(st, center, n0, n1, Vector3.UP)                    # top face
-	return st.commit()
-
-func _add_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, ref: Vector3) -> void:
-	var n := (b - a).cross(c - a)
-	if n.length() < 1e-6:
-		return
-	n = n.normalized()
-	if n.dot(ref) < 0.0:
-		var t := b; b = c; c = t; n = -n
-	st.set_normal(n); st.add_vertex(a)
-	st.set_normal(n); st.add_vertex(b)
-	st.set_normal(n); st.add_vertex(c)
-
-func _add_quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, ref: Vector3) -> void:
-	_add_tri(st, a, b, c, ref)
-	_add_tri(st, a, c, d, ref)
-
 func _make_hex_prism(radius: float, height: float) -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Pointy-top hexagon matching HexBoard's corner angles (60*i - 30 deg).
+	# Explicit normals + a filled top/bottom fan + solid side walls. Visibility
+	# is guaranteed by the material's cull_disabled, so winding can't hollow it.
 	var corners: Array[Vector2] = []
 	for i in range(6):
 		var a := deg_to_rad(60.0 * i - 30.0)
 		corners.append(Vector2(cos(a), sin(a)) * radius)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var top_c := Vector3(0, height, 0)
+	var bot_c := Vector3(0, 0, 0)
 	for i in range(6):
-		var c0 := corners[i]
-		var c1 := corners[(i + 1) % 6]
-		var b0 := Vector3(c0.x, 0, c0.y)
-		var b1 := Vector3(c1.x, 0, c1.y)
-		var t0 := Vector3(c0.x, height, c0.y)
-		var t1 := Vector3(c1.x, height, c1.y)
-		var radial := Vector3(c0.x + c1.x, 0, c0.y + c1.y).normalized()
-		_add_quad(st, b0, t0, t1, b1, radial)
-		_add_tri(st, Vector3(0, height, 0), t0, t1, Vector3.UP)
+		var j := (i + 1) % 6
+		var t0 := Vector3(corners[i].x, height, corners[i].y)
+		var t1 := Vector3(corners[j].x, height, corners[j].y)
+		var b0 := Vector3(corners[i].x, 0, corners[i].y)
+		var b1 := Vector3(corners[j].x, 0, corners[j].y)
+		_tri(st, top_c, t0, t1, Vector3.UP)         # solid top face
+		_tri(st, bot_c, b1, b0, Vector3.DOWN)       # solid bottom face
+		var radial := Vector3(corners[i].x + corners[j].x, 0, corners[i].y + corners[j].y).normalized()
+		_tri(st, b0, t0, t1, radial)                # side wall
+		_tri(st, b0, t1, b1, radial)
 	return st.commit()
+
+func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, n: Vector3) -> void:
+	st.set_normal(n); st.add_vertex(a)
+	st.set_normal(n); st.add_vertex(b)
+	st.set_normal(n); st.add_vertex(c)
 
 # ===========================================================================
 #  Materials
@@ -244,7 +192,6 @@ func _plastic(color: Color) -> StandardMaterial3D:
 	_mat_cache[key] = m
 	return m
 
-# Procedural terrain shader, tuned per resource.
 func _terrain_material(res: int) -> ShaderMaterial:
 	var key := "t_%d" % res
 	if _mat_cache.has(key):
@@ -278,96 +225,20 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	return m
 
 # ===========================================================================
-#  Water + table
+#  Water (no island base — tiles sit directly in the water)
 # ===========================================================================
-func _spawn_table_and_water() -> void:
-	var span := 6.0
-	for c in _hex_world:
-		span = max(span, Vector2(c.x, c.z).length())
-
+func _spawn_water() -> void:
 	var water := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(60, 60)
-	plane.subdivide_width = 64
-	plane.subdivide_depth = 64
+	plane.subdivide_width = 40
+	plane.subdivide_depth = 40
 	water.mesh = plane
 	var wm := ShaderMaterial.new()
 	wm.shader = _water_shader
-	wm.set_shader_parameter("shore_radius", span + _r * 0.55)
-	wm.set_shader_parameter("foam_width", _r * 0.7)
 	water.material_override = wm
 	water.position = Vector3(0, WATER_Y, 0)
 	add_child(water)
-
-	# Low sandy beach beneath the tiles (kept short so the tiles rise above it).
-	var sand := MeshInstance3D.new()
-	var disc := CylinderMesh.new()
-	disc.top_radius = span + _r * 0.55
-	disc.bottom_radius = span + _r * 0.85
-	disc.height = 0.16
-	disc.radial_segments = 56
-	sand.mesh = disc
-	sand.material_override = _plastic(Color("d8c389"))
-	sand.position = Vector3(0, 0.08, 0)
-	add_child(sand)
-
-# ===========================================================================
-#  Micro-props (trees on wood, boulders on ore) — clustered near tile centers
-# ===========================================================================
-func _scatter_props(tile: Node3D, res: int) -> void:
-	if res != Consts.Res.WOOD and res != Consts.Res.ORE:
-		return
-	var count := randi_range(2, 3)
-	for i in range(count):
-		var ang := randf() * TAU
-		# Ring just outside the number token but well inside the corner vertices.
-		var rad := randf_range(0.40, 0.58) * _r
-		var local := Vector3(cos(ang) * rad, TILE_HEIGHT, sin(ang) * rad)
-		var prop := _make_pine() if res == Consts.Res.WOOD else _make_boulder()
-		prop.position = local
-		prop.rotation.y = randf() * TAU
-		tile.add_child(prop)
-
-func _make_pine() -> Node3D:
-	var root := Node3D.new()
-	var s := _r * 0.55
-	var trunk := MeshInstance3D.new()
-	var tc := CylinderMesh.new()
-	tc.top_radius = 0.04 * s; tc.bottom_radius = 0.05 * s; tc.height = 0.12 * s
-	trunk.mesh = tc
-	trunk.material_override = _plastic(Color("6b4a2b"))
-	trunk.position = Vector3(0, 0.06 * s, 0)
-	root.add_child(trunk)
-	for k in range(2):
-		var cone := MeshInstance3D.new()
-		var cm := CylinderMesh.new()
-		cm.top_radius = 0.0
-		cm.bottom_radius = (0.17 - 0.05 * k) * s
-		cm.height = 0.22 * s
-		cm.radial_segments = 7
-		cone.mesh = cm
-		cone.material_override = _plastic(Color("2f7d3a").lightened(0.06 * k))
-		cone.position = Vector3(0, (0.18 + 0.16 * k) * s, 0)
-		root.add_child(cone)
-	return root
-
-func _make_boulder() -> Node3D:
-	var root := Node3D.new()
-	var s := _r * 0.5
-	var n := randi_range(1, 2)
-	for i in range(n):
-		var rock := MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		sm.radius = randf_range(0.12, 0.2) * s
-		sm.height = sm.radius * 1.7
-		sm.radial_segments = 6
-		sm.rings = 3
-		rock.mesh = sm
-		rock.material_override = _plastic(Color("7b828b").lightened(randf() * 0.1))
-		rock.position = Vector3(randf_range(-0.1, 0.1) * s, sm.radius * 0.7, randf_range(-0.1, 0.1) * s)
-		rock.scale = Vector3(1.0, randf_range(0.7, 1.0), 1.0)
-		root.add_child(rock)
-	return root
 
 # ===========================================================================
 #  Piece sync (bouncy pop-in)
@@ -399,7 +270,7 @@ func _sync_pieces() -> void:
 			_road_nodes[e] = rnode
 			_pop_in(rnode)
 	if _robber_node != null:
-		var target := _hex_world[s.robber_hex] + Vector3(_r * 0.32, 0.06, _r * 0.1)
+		var target := _hex_world[s.robber_hex] + Vector3(_r * 0.3, 0.02, _r * 0.1)
 		var tw := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		tw.tween_property(_robber_node, "position", target, 0.4)
 
@@ -409,22 +280,12 @@ func _pop_in(node: Node3D) -> void:
 	tw.tween_property(node, "scale", Vector3.ONE, PLACE_TIME)
 
 # ===========================================================================
-#  Per-frame: token bob/spin + hover
+#  Per-frame: hover detection + highlight pulse
 # ===========================================================================
 func _process(delta: float) -> void:
 	_time += delta
-	_animate_tokens()
 	_update_hover()
 	_pulse_highlights()
-
-func _animate_tokens() -> void:
-	for i in range(_token_nodes.size()):
-		var tok := _token_nodes[i]
-		if tok == null:
-			continue
-		var base_y: float = _hex_world[i].y + TOKEN_HOVER
-		tok.position.y = base_y + sin(_time * 2.0 + float(i)) * TOKEN_BOB
-		tok.rotate_y(0.6 * get_process_delta_time())
 
 func _update_hover() -> void:
 	var cam := get_viewport().get_camera_3d()
@@ -461,10 +322,10 @@ func _set_hover_hex(h: int) -> void:
 	if h == _hover_hex:
 		return
 	if _hover_hex != -1 and _hover_hex < _tile_nodes.size():
-		_lift_tile(_hover_hex, _tile_base_y[_hover_hex])
+		_lift_tile(_hover_hex, 0.0)
 	_hover_hex = h
 	if h != -1:
-		_lift_tile(h, _tile_base_y[h] + TILE_HOVER_LIFT)
+		_lift_tile(h, TILE_HOVER_LIFT)
 
 func _lift_tile(h: int, target_y: float) -> void:
 	var tw := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
@@ -494,6 +355,7 @@ func _unhandled_input(event: InputEvent) -> void:
 # ===========================================================================
 func _rebuild_highlights() -> void:
 	for c in _highlights.get_children():
+		_highlights.remove_child(c)
 		c.queue_free()
 	if Game.state == null:
 		return
@@ -522,7 +384,6 @@ func _rebuild_hologram() -> void:
 	if _hologram != null:
 		_hologram.queue_free()
 		_hologram = null
-	_holo_kind = pick_mode
 	if Game.state == null or acting_seat < 0:
 		return
 	var col: Color = Game.state.players[acting_seat].color
