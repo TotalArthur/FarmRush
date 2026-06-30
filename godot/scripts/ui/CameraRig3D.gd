@@ -45,15 +45,10 @@ func _ready() -> void:
 	camera = Camera3D.new()
 	camera.fov = fov
 	camera.position = Vector3(0, 0, distance)
-	# Depth of field needs the Forward+/Mobile renderer (a RenderingDevice).
-	# On gl_compatibility it's unsupported, so only enable it when available.
-	if RenderingServer.get_rendering_device() != null:
-		var attribs := CameraAttributesPractical.new()
-		attribs.dof_blur_far_enabled = true
-		attribs.dof_blur_far_distance = 22.0
-		attribs.dof_blur_far_transition = 8.0
-		attribs.dof_blur_amount = 0.06
-		camera.attributes = attribs
+	# Depth of field disabled: the whole tabletop should read crisp and sharp
+	# at any camera distance/FOV. Leaving this off avoids the board-wide blur
+	# some Forward+/Vulkan setups produced with a far-blur radius tuned for an
+	# older, closer camera position.
 	arm.add_child(camera)
 	camera.current = true
 
