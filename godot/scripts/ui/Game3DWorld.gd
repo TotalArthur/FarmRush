@@ -77,9 +77,10 @@ func _setup_environment() -> void:
 	var we := WorldEnvironment.new()
 	var env := Environment.new()
 
-	# Deep, vibrant ocean-blue background (no bright sky).
+	# Deep, vibrant ocean-blue background (no bright sky) — a shade darker than
+	# the colonist-blue water plane so the sea fades out at the horizon.
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.04, 0.20, 0.38)
+	env.background_color = Color(0.05, 0.28, 0.48)
 
 	# Controlled ambient fill: lifts shadows so they aren't pitch black,
 	# without washing out the highlights.

@@ -21,6 +21,7 @@ enum PickMode { NONE, SETTLEMENT, CITY, ROAD, ROBBER }
 # --- Tunables (world units) ------------------------------------------------
 const WORLD_SCALE := 0.02
 const TILE_HEIGHT := 0.5         # chunky vertical extrusion; also the rim/top
+const BEACH_HEIGHT := 0.3        # sand frame ring sits lower than the land tiles
 const WATER_Y := 0.12            # water sits partway up the tile sides
 const TOKEN_LIFT := 0.06         # token height above the solid hex top (stamped, not floating)
 const TILE_HOVER_LIFT := 0.12
@@ -103,6 +104,7 @@ func _build_board() -> void:
 	_clear_children_except_highlights()
 	_precompute_world(s)
 	_spawn_water()
+	_spawn_beach()
 
 	# One shared solid hex prism mesh for every tile.
 	_hex_mesh = _make_hex_prism(_r, TILE_HEIGHT)
@@ -219,20 +221,21 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	var rough_a := 0.5
 	var rough_b := 0.4
 	var metallic := 0.0
+	# colonist.io-matched tile palette, kept saturated and toy-bright in 3D.
 	match res:
-		Consts.Res.WOOD:        # lush forest green
-			ca = Color("2f8f3b"); cb = Color("5cc24f"); pattern = 0; scale = 7.0
-		Consts.Res.SHEEP:       # bright pasture
-			ca = Color("7ec64a"); cb = Color("aee06a"); pattern = 0; scale = 6.0
-		Consts.Res.WHEAT:       # golden wheat
-			ca = Color("e6b52e"); cb = Color("ffd84a"); pattern = 0; scale = 8.0
-		Consts.Res.BRICK:       # bright terracotta
-			ca = Color("d2632f"); cb = Color("ef8c52"); pattern = 1; scale = 6.0
-		Consts.Res.ORE:         # clean stone with a gleam
-			ca = Color("7d8893"); cb = Color("b6bfc9"); pattern = 1; scale = 6.0
+		Consts.Res.WOOD:        # deep forest green
+			ca = Color("1e7a3a"); cb = Color("4cb057"); pattern = 0; scale = 7.0
+		Consts.Res.SHEEP:       # fresh lime pasture
+			ca = Color("8cc63e"); cb = Color("bbe273"); pattern = 0; scale = 6.0
+		Consts.Res.WHEAT:       # rich golden field
+			ca = Color("e8a91c"); cb = Color("ffd344"); pattern = 0; scale = 8.0
+		Consts.Res.BRICK:       # warm clay orange
+			ca = Color("d5652c"); cb = Color("f79552"); pattern = 1; scale = 6.0
+		Consts.Res.ORE:         # cool slate with a gleam
+			ca = Color("75828f"); cb = Color("b4bfca"); pattern = 1; scale = 6.0
 			rough_a = 0.42; rough_b = 0.30; metallic = 0.30
 		_:                      # desert sand
-			ca = Color("e6cd86"); cb = Color("f6e6b0"); pattern = 2; scale = 5.0
+			ca = Color("dfcb8d"); cb = Color("f2e4ae"); pattern = 2; scale = 5.0
 	m.set_shader_parameter("color_a", ca)
 	m.set_shader_parameter("color_b", cb)
 	m.set_shader_parameter("noise_scale", scale)
@@ -248,7 +251,7 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	return m
 
 # ===========================================================================
-#  Water (no island base — tiles sit directly in the water)
+#  Water + sand frame (no island base — tiles sit directly in the water)
 # ===========================================================================
 func _spawn_water() -> void:
 	var water := MeshInstance3D.new()
@@ -259,9 +262,52 @@ func _spawn_water() -> void:
 	water.mesh = plane
 	var wm := ShaderMaterial.new()
 	wm.shader = _water_shader
+	# colonist.io ocean: friendly mid-blue, still deep enough for contrast.
+	wm.set_shader_parameter("deep_color", Color("14639f"))
+	wm.set_shader_parameter("shallow_color", Color("3f9fd6"))
 	water.material_override = wm
 	water.position = Vector3(0, WATER_Y, 0)
 	add_child(water)
+
+## Ring of low sand hexes hugging the island — the 3D take on colonist.io's
+## tan board frame. Shorter than the land tiles so the island reads raised,
+## taller than the water so it forms a visible beach shoreline.
+func _spawn_beach() -> void:
+	var beach_mesh := _make_hex_prism(_r, BEACH_HEIGHT)
+	var mat := ShaderMaterial.new()
+	mat.shader = _terrain_shader
+	mat.set_shader_parameter("color_a", Color("bfa361"))
+	mat.set_shader_parameter("color_b", Color("dcc78a"))
+	mat.set_shader_parameter("noise_scale", 4.0)
+	mat.set_shader_parameter("pattern_type", 2)
+	mat.set_shader_parameter("rough_a", 0.95)
+	mat.set_shader_parameter("rough_b", 0.85)
+	mat.set_shader_parameter("metallic_amt", 0.0)
+	mat.set_shader_parameter("hex_radius", _r)
+	mat.set_shader_parameter("edge_darken", 0.18)
+	mat.set_shader_parameter("rim_strength", 0.04)
+	# Pointy-top hexes: neighbors sit across the 6 edges at 60° steps,
+	# center-to-center distance sqrt(3) * radius.
+	var step := _r * sqrt(3.0)
+	var occupied := {}
+	for c in _hex_world:
+		occupied[_grid_key(Vector2(c.x, c.z))] = true
+	for c in _hex_world:
+		for k in range(6):
+			var ang := deg_to_rad(60.0 * k)
+			var p := Vector2(c.x, c.z) + Vector2(cos(ang), sin(ang)) * step
+			var key := _grid_key(p)
+			if occupied.has(key):
+				continue
+			occupied[key] = true
+			var m := MeshInstance3D.new()
+			m.mesh = beach_mesh
+			m.material_override = mat
+			m.position = Vector3(p.x, 0, p.y)
+			add_child(m)
+
+func _grid_key(p: Vector2) -> Vector2i:
+	return Vector2i(roundi(p.x * 10.0), roundi(p.y * 10.0))
 
 # ===========================================================================
 #  Piece sync (bouncy pop-in)

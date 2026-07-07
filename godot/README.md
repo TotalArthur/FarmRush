@@ -53,9 +53,13 @@ The board is a 3D scene (`Game3DWorld`) and is the **default** in-game view:
   from the engine's axial coordinates, with slightly randomized top vertices so
   the terrain isn't perfectly flat.
 - **Procedural terrain shaders** (`shaders/terrain.gdshader`) — noise-blended
-  grass/forest/field, rocky ore/brick, and wavy desert dunes (no textures).
+  grass/forest/field, rocky ore/brick, and wavy desert dunes (no textures),
+  in a **colonist.io-matched palette**: deep forest green, lime pasture,
+  golden wheat, clay-orange brick, and cool slate ore.
+- **Sand frame** — a ring of low tan hexes hugs the island (the 3D take on
+  colonist.io's tan board border), with the calm blue ocean beyond it.
 - **Animated water shader** (`shaders/water.gdshader`) — TIME-driven wave
-  displacement and an animated foam ring at the shoreline.
+  displacement in colonist's friendly mid-blue.
 - **Micro-props**: clean low-poly primitives per resource — pine cone/trunk
   trees on Wood, stacked brick prisms on Brick, fluffy capsule sheep on
   Sheep, thin golden stalks on Wheat, blocky dark rocks on Ore — clustered
@@ -64,7 +68,8 @@ The board is a 3D scene (`Game3DWorld`) and is the **default** in-game view:
 - **Juicy feedback**: hexes lift on hover (Tween), settlements/roads/cities
   *pop in* with an elastic overshoot, and a translucent glowing **hologram**
   previews your placement under the cursor.
-- **Floating number tokens** that bob and slowly spin above each tile.
+- **Stamped number tokens** — cream discs lying flat on each tile, colonist
+  style (red 6/8).
 - **3D physics dice** (`scripts/dice/`) that can be physically thrown and read
   by their resting top face.
 
