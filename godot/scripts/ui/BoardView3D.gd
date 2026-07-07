@@ -24,7 +24,6 @@ const TILE_HEIGHT := 0.5         # chunky vertical extrusion; also the rim/top
 const BEACH_HEIGHT := 0.3        # sand frame ring sits lower than the land tiles
 const WATER_Y := 0.12            # water sits partway up the tile sides
 const TOKEN_LIFT := 0.14         # token float height above the hex top
-const TOKEN_TILT := -26.0        # tilt toward the tabletop camera for legibility
 const TILE_HOVER_LIFT := 0.12
 const PLACE_TIME := 0.5
 
@@ -346,18 +345,18 @@ func _sync_pieces() -> void:
 			node.position = _vertex_world[v]
 			add_child(node)
 			_settle_nodes[v] = { "node": node, "city": b["city"] }
-			_pop_in(node)
-			if _ready_for_fx:
-				_burst(node.position + Vector3(0, _r * 0.4, 0), col)
+			var fpos := node.position
+			_place_juice(node,
+				func(): if _ready_for_fx: _burst(fpos + Vector3(0, _r * 0.4, 0), col))
 		elif _settle_nodes[v]["city"] != b["city"]:
 			_settle_nodes[v]["node"].queue_free()
 			var node2 := _make_city(col)
 			node2.position = _vertex_world[v]
 			add_child(node2)
 			_settle_nodes[v] = { "node": node2, "city": true }
-			_pop_in(node2)
-			if _ready_for_fx:
-				_burst(node2.position + Vector3(0, _r * 0.4, 0), col)
+			var fpos2 := node2.position
+			_place_juice(node2,
+				func(): if _ready_for_fx: _burst(fpos2 + Vector3(0, _r * 0.4, 0), col))
 	for e in s.roads:
 		if not _road_nodes.has(e):
 			var edge := s.board.edges[e]
@@ -365,18 +364,32 @@ func _sync_pieces() -> void:
 			var rnode := _make_road(col2, _vertex_world[edge.x], _vertex_world[edge.y])
 			add_child(rnode)
 			_road_nodes[e] = rnode
-			_pop_in(rnode)
-			if _ready_for_fx:
-				_burst(rnode.position + Vector3(0, _r * 0.25, 0), col2)
+			var fpos3 := rnode.position
+			_place_juice(rnode,
+				func(): if _ready_for_fx: _burst(fpos3 + Vector3(0, _r * 0.25, 0), col2))
 	if _robber_node != null:
 		var target := _hex_world[s.robber_hex] + Vector3(_r * 0.3, 0.02, _r * 0.1)
 		var tw := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		tw.tween_property(_robber_node, "position", target, 0.4)
 
-func _pop_in(node: Node3D) -> void:
-	node.scale = Vector3.ZERO
-	var tw := create_tween().set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
-	tw.tween_property(node, "scale", Vector3.ONE, PLACE_TIME)
+## Placement juice: the piece falls from above (gravity-style ease-in),
+## squashes on impact, and springs back — squash & stretch sells the weight.
+const DROP_HEIGHT := 0.9
+
+func _place_juice(node: Node3D, on_impact: Callable = Callable()) -> void:
+	var final_pos := node.position
+	node.position = final_pos + Vector3(0, DROP_HEIGHT, 0)
+	node.scale = Vector3(0.72, 1.28, 0.72)          # stretched during the fall
+	var tw := create_tween()
+	tw.tween_property(node, "position", final_pos, 0.16) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	if on_impact.is_valid():
+		tw.tween_callback(on_impact)
+	tw.tween_property(node, "scale", Vector3(1.22, 0.72, 1.22), 0.07) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)   # impact squash
+	tw.tween_property(node, "scale", Vector3(0.94, 1.06, 0.94), 0.09)
+	tw.tween_property(node, "scale", Vector3.ONE, 0.11) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)   # settle
 
 # ===========================================================================
 #  Confetti burst on placement (player-colored, scales down to 0)
@@ -624,10 +637,9 @@ func _nearest_in(arr: Array, p: Vector3, max_d: float, allowed: Array) -> int:
 	return best
 
 func _make_token(number: int) -> Node3D:
-	var root := Node3D.new()
-	# Fixed slight tilt toward the camera: crisper to read at the tabletop
-	# pitch than lying dead flat, without the swimming of full billboarding.
-	root.rotation_degrees.x = TOKEN_TILT
+	# Token3D self-corrects every frame: equal on-screen size at any distance
+	# plus a soft tilt toward the camera (see scripts/ui/Token3D.gd).
+	var root := Token3D.new()
 	var disc := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
 	cyl.top_radius = _r * 0.38

@@ -15,11 +15,11 @@ extends Node3D
 ##   - Middle-drag    : orbit (yaw)
 ## Panning is clamped to the board's footprint so you can't lose the table.
 
-@export var pitch_degrees := 47.0   # tight, dramatic isometric tilt
-@export var fov := 40.0             # low FOV -> telephoto "miniature diorama"
+@export var pitch_degrees := 54.0   # higher pitch = less foreshortening at the back rows
+@export var fov := 36.0             # low FOV -> flattened, tabletop-miniature perspective
 @export var distance := 20.0
-@export var min_distance := 10.0
-@export var max_distance := 48.0
+@export var min_distance := 12.0
+@export var max_distance := 60.0
 @export var pan_speed := 9.0
 @export var zoom_step := 1.6
 @export var edge_scroll := true
@@ -53,13 +53,21 @@ func _ready() -> void:
 	camera.current = true
 
 ## Fit the camera framing + pan limits to the live board.
+##
+## Orthographic-illusion math: on-screen size scales with 1/distance and with
+## tan(fov/2). Halving the FOV means doubling the pull-back for the same
+## framing — which is exactly what flattens the perspective (near and far
+## tiles end up at nearly the same distance ratio). So instead of a magic
+## multiplier, derive the distance from the lens itself:
+##     distance = span * margin / tan(fov / 2)
+## `margin` buys headroom for the beach ring and the HUD edges.
 func frame_board(board: BoardView3D) -> void:
 	var span := 6.0
 	for c in board._hex_world:
 		span = max(span, Vector2(c.x, c.z).length())
 	_bounds = Rect2(Vector2(-span, -span), Vector2(span * 2.0, span * 2.0))
-	# Low FOV needs more pull-back to frame the same board (telephoto look).
-	distance = clampf(span * 4.6, min_distance, max_distance)
+	var margin := 1.45
+	distance = clampf(span * margin / tan(deg_to_rad(fov * 0.5)), min_distance, max_distance)
 	camera.position.z = distance
 
 ## Smoothly drift the camera focus toward a world point (active player's
