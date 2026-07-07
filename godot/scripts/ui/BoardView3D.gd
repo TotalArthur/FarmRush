@@ -23,7 +23,8 @@ const WORLD_SCALE := 0.02
 const TILE_HEIGHT := 0.5         # chunky vertical extrusion; also the rim/top
 const BEACH_HEIGHT := 0.3        # sand frame ring sits lower than the land tiles
 const WATER_Y := 0.12            # water sits partway up the tile sides
-const TOKEN_LIFT := 0.06         # token height above the solid hex top (stamped, not floating)
+const TOKEN_LIFT := 0.14         # token float height above the hex top
+const TOKEN_TILT := -26.0        # tilt toward the tabletop camera for legibility
 const TILE_HOVER_LIFT := 0.12
 const PLACE_TIME := 0.5
 
@@ -312,6 +313,25 @@ func _spawn_beach() -> void:
 
 func _grid_key(p: Vector2) -> Vector2i:
 	return Vector2i(roundi(p.x * 10.0), roundi(p.y * 10.0))
+
+# ===========================================================================
+#  Production feedback: bounce + golden burst on every tile whose number was
+#  just rolled, so the player's eye snaps to what produced.
+# ===========================================================================
+func flash_production(total: int) -> void:
+	var s := Game.state
+	if s == null:
+		return
+	for h in range(s.board.hex_count()):
+		if s.hex_token[h] != total or h == s.robber_hex:
+			continue
+		var tile := _tile_nodes[h]
+		var tw := create_tween()
+		tw.tween_property(tile, "position:y", 0.22, 0.16) \
+			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw.tween_property(tile, "position:y", 0.0, 0.5) \
+			.set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+		_burst(_hex_world[h] + Vector3(0, 0.4, 0), Color(1.0, 0.84, 0.30))
 
 # ===========================================================================
 #  Piece sync (bouncy pop-in)
@@ -605,6 +625,9 @@ func _nearest_in(arr: Array, p: Vector3, max_d: float, allowed: Array) -> int:
 
 func _make_token(number: int) -> Node3D:
 	var root := Node3D.new()
+	# Fixed slight tilt toward the camera: crisper to read at the tabletop
+	# pitch than lying dead flat, without the swimming of full billboarding.
+	root.rotation_degrees.x = TOKEN_TILT
 	var disc := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
 	cyl.top_radius = _r * 0.38

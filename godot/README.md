@@ -10,11 +10,19 @@ digital tabletop** (Pummel Party / Mario Party vibe).
 
 ## Modern UI
 
-The interface uses one shared style helper (`UITheme`) for a calm, premium
-feel: warm **ivory panels** with hairline borders and soft shadows over a
-warm charcoal backdrop, a single **terracotta primary** for the main action
-(Roll / End Turn / Start), and quiet bordered secondary buttons for
-everything else:
+The interface uses one shared style helper (`UITheme`). The menu keeps the
+warm ivory/charcoal look; the in-game HUD switches to **dark navy glass
+panels** (`hud_panel`, `#16212e` @ 93%) so every panel pops against the
+bright ocean without hiding the board. One **terracotta primary** carries
+the main action (Roll / End Turn / Start), quiet bordered secondary buttons
+handle the rest, and build buttons are **cost buttons** that show their
+exact price and fade when unaffordable.
+
+The HUD runs a small **state machine** (`GameScreen.UIPhase`:
+`WAITING / SETUP / ROLL / MAIN / ROBBER / DISCARD / OVER`) derived from the
+engine phase — each state shows exactly one clear next step (ROLL shows only
+the roll button; MAIN opens the build/trade set with live affordability;
+opponents' turns strip the cluster down to the dice readout).
 
 - **Start screen** (`MainMenu`): left nav sidebar, **Bots / Casual / Ranked**
   tabs, a styled mode card (difficulty + opponent count), and a big Start button.

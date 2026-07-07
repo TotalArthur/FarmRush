@@ -41,6 +41,12 @@ var _log_panel: PanelContainer
 var _log_btn: Button
 var _free_road_mode := false
 
+## UI state machine for the local player's turn. Derived from the engine
+## phase + whose turn it is; _apply_ui_phase() maps each state to exactly
+## the controls that matter, so the HUD always shows one clear next step.
+enum UIPhase { WAITING, SETUP, ROLL, MAIN, ROBBER, DISCARD, OVER }
+var ui_phase: int = UIPhase.WAITING
+
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE   # empty areas -> board behind
@@ -74,7 +80,7 @@ func _build_ui() -> void:
 	add_child(toast_label)
 
 func _build_top_banner() -> void:
-	var panel := UITheme.make_panel(UITheme.PANEL, 14)
+	var panel := UITheme.hud_panel(14)
 	panel.anchor_left = 0.5
 	panel.anchor_right = 0.5
 	panel.offset_left = -260
@@ -93,12 +99,12 @@ func _build_top_banner() -> void:
 	prompt_label = Label.new()
 	prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	prompt_label.add_theme_font_size_override("font_size", 19)
-	prompt_label.add_theme_color_override("font_color", UITheme.INK)
+	prompt_label.add_theme_color_override("font_color", UITheme.HUD_TEXT)
 	row.add_child(prompt_label)
 
 func _build_right_hub() -> void:
 	# Compact players card, top-right — sized to content, board visible below.
-	var panel := UITheme.make_panel(UITheme.PANEL, 14)
+	var panel := UITheme.hud_panel(14)
 	panel.anchor_left = 1.0
 	panel.anchor_right = 1.0
 	panel.offset_left = -312
@@ -115,7 +121,7 @@ func _build_right_hub() -> void:
 
 	# Game log lives in a popup panel, toggled by a small button (bottom-right)
 	# so it never eats board space unless the player asks for it.
-	_log_panel = UITheme.make_panel(UITheme.PANEL, 14)
+	_log_panel = UITheme.hud_panel(14)
 	_log_panel.anchor_left = 1.0
 	_log_panel.anchor_right = 1.0
 	_log_panel.anchor_top = 1.0
@@ -129,14 +135,14 @@ func _build_right_hub() -> void:
 	var lv := VBoxContainer.new()
 	lv.add_theme_constant_override("separation", 6)
 	_log_panel.add_child(lv)
-	lv.add_child(UITheme.heading("Game Log", 16))
+	lv.add_child(UITheme.heading("Game Log", 16, UITheme.HUD_TEXT))
 	log_label = RichTextLabel.new()
 	log_label.bbcode_enabled = true
 	log_label.scroll_active = true
 	log_label.scroll_following = true
 	log_label.fit_content = false
 	log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	log_label.add_theme_color_override("default_color", UITheme.INK)
+	log_label.add_theme_color_override("default_color", UITheme.HUD_TEXT_SOFT)
 	log_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	lv.add_child(log_label)
 
@@ -164,7 +170,7 @@ func _build_action_hub() -> void:
 
 	# Compact action cluster bottom-right; the panel auto-sizes to its content
 	# so there is zero wasted space.
-	var panel := UITheme.make_panel(UITheme.PANEL, 14)
+	var panel := UITheme.hud_panel(14)
 	panel.anchor_left = 1.0
 	panel.anchor_right = 1.0
 	panel.anchor_top = 1.0
@@ -182,16 +188,17 @@ func _build_action_hub() -> void:
 
 	dice_label = Label.new()
 	dice_label.add_theme_font_size_override("font_size", 16)
-	dice_label.add_theme_color_override("font_color", UITheme.INK_SOFT)
+	dice_label.add_theme_color_override("font_color", UITheme.HUD_TEXT_SOFT)
 	dice_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
-	# One primary color (terracotta) for the turn-flow actions; everything else
-	# is a quiet bordered secondary button so the cluster reads calm.
+	# One primary color (terracotta) for the turn-flow actions. Build actions
+	# are cost buttons that display their exact price and fade when the
+	# player's inventory can't cover it.
 	roll_btn = _btn("Roll Dice", UITheme.ACCENT, _on_roll)
-	settle_btn = _sbtn("Settlement", func(): _start_pick("settlement"))
-	city_btn = _sbtn("City", func(): _start_pick("city"))
-	road_btn = _sbtn("Road", func(): _start_pick("road"))
-	dev_btn = _sbtn("Buy Card", _on_buy_dev)
+	settle_btn = _cbtn("Settlement", Consts.COST_SETTLEMENT, func(): _start_pick("settlement"))
+	city_btn = _cbtn("City", Consts.COST_CITY, func(): _start_pick("city"))
+	road_btn = _cbtn("Road", Consts.COST_ROAD, func(): _start_pick("road"))
+	dev_btn = _cbtn("Buy Card", Consts.COST_DEV, _on_buy_dev)
 	play_dev_btn = _sbtn("Play Card", _on_play_dev)
 	trade_btn = _sbtn("Trade", _on_trade)
 	end_btn = _btn("End Turn", UITheme.ACCENT, _on_end_turn)
@@ -220,6 +227,11 @@ func _btn(text: String, color: Color, cb: Callable) -> Button:
 
 func _sbtn(text: String, cb: Callable) -> Button:
 	var b := UITheme.secondary_button(text)
+	b.pressed.connect(cb)
+	return b
+
+func _cbtn(text: String, cost: Dictionary, cb: Callable) -> Button:
+	var b := UITheme.cost_button(text, cost)
 	b.pressed.connect(cb)
 	return b
 
@@ -261,29 +273,38 @@ func _refresh_players(s: GameState) -> void:
 
 func _player_row(s: GameState, p: Player, is_current: bool, is_view: bool) -> PanelContainer:
 	var row := PanelContainer.new()
-	var bg := UITheme.ACCENT.lightened(0.55) if is_current else UITheme.PANEL_SOFT
+	var bg := Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.32) \
+		if is_current else UITheme.HUD_BG_SOFT
 	row.add_theme_stylebox_override("panel", UITheme.flat(bg, 8))
 	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 8)
+	h.add_theme_constant_override("separation", 9)
 	row.add_child(h)
 	var sw := ColorRect.new()
 	sw.color = p.color
 	sw.custom_minimum_size = Vector2(20, 20)
 	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	h.add_child(sw)
+	# VP is THE score — it gets the big number.
+	var vp := Label.new()
+	vp.text = str(s.victory_points(p.id, is_view))
+	vp.add_theme_font_size_override("font_size", 26)
+	vp.add_theme_color_override("font_color", UITheme.HUD_TEXT)
+	vp.custom_minimum_size = Vector2(30, 0)
+	vp.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vp.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(vp)
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(col)
 	var name := Label.new()
 	name.text = ("➤ " if is_current else "") + p.name
-	name.add_theme_color_override("font_color", UITheme.INK)
+	name.add_theme_color_override("font_color", UITheme.HUD_TEXT)
 	name.add_theme_font_size_override("font_size", 15)
 	col.add_child(name)
 	var stats := Label.new()
 	var dev := p.dev_card_count() + _bought_count(p)
-	stats.text = "VP %d   Cards %d   Dev %d   Kn %d" % [
-		s.victory_points(p.id, is_view), p.total_resources(), dev, p.played_knights]
-	stats.add_theme_color_override("font_color", UITheme.INK_SOFT)
+	stats.text = "Cards %d   Dev %d   Knights %d" % [p.total_resources(), dev, p.played_knights]
+	stats.add_theme_color_override("font_color", UITheme.HUD_TEXT_SOFT)
 	stats.add_theme_font_size_override("font_size", 12)
 	col.add_child(stats)
 	# Bonus badges.
@@ -293,7 +314,7 @@ func _player_row(s: GameState, p: Player, is_current: bool, is_view: bool) -> Pa
 		if p.has_longest_road: b += "ROAD "
 		if p.has_largest_army: b += "ARMY"
 		badge.text = b
-		badge.add_theme_color_override("font_color", UITheme.ACCENT.darkened(0.1))
+		badge.add_theme_color_override("font_color", UITheme.ACCENT.lightened(0.2))
 		badge.add_theme_font_size_override("font_size", 11)
 		h.add_child(badge)
 	return row
@@ -313,22 +334,51 @@ func _refresh_hand(s: GameState) -> void:
 	for r in Consts.RES_ALL:
 		hand_bar.add_child(UITheme.hand_card(r, p.resources.get(r, 0)))
 
+## Map the engine phase + seat ownership onto the UI state machine.
+func _ui_phase_of(s: GameState) -> int:
+	if s.phase == Consts.Phase.GAME_OVER:
+		return UIPhase.OVER
+	if Game.active_human_seat() == -1:
+		return UIPhase.WAITING          # opponent's turn: HUD goes passive
+	match s.phase:
+		Consts.Phase.SETUP:
+			return UIPhase.SETUP
+		Consts.Phase.ROLL:
+			return UIPhase.ROLL
+		Consts.Phase.MAIN:
+			return UIPhase.MAIN
+		Consts.Phase.MOVE_ROBBER:
+			return UIPhase.ROBBER
+		Consts.Phase.DISCARD:
+			return UIPhase.DISCARD
+	return UIPhase.WAITING
+
+## One clear next step per state: ROLL shows only the roll button, MAIN shows
+## the full build/trade set with live affordability, everything else strips
+## the cluster down to the dice readout + log.
 func _refresh_actions(s: GameState) -> void:
+	ui_phase = _ui_phase_of(s)
 	var seat := Game.active_human_seat()
-	var my := seat != -1
-	var is_main := s.phase == Consts.Phase.MAIN and my
 	dice_label.text = ("Dice %d + %d" % [s.dice[0], s.dice[1]]) if s.has_rolled else "Dice —"
-	roll_btn.visible = s.phase == Consts.Phase.ROLL and my
+
+	roll_btn.visible = ui_phase == UIPhase.ROLL
+	var is_main := ui_phase == UIPhase.MAIN
 	for b in [settle_btn, city_btn, road_btn, dev_btn, trade_btn, end_btn]:
 		b.visible = is_main
-	play_dev_btn.visible = (is_main or (s.phase == Consts.Phase.ROLL and my)) and _has_playable_dev(s, seat)
+	play_dev_btn.visible = (ui_phase == UIPhase.MAIN or ui_phase == UIPhase.ROLL) \
+		and _has_playable_dev(s, seat)
 	if not is_main:
 		return
+
+	# Dynamic affordability: disable + fade against the player's exact
+	# inventory, and tint the specific missing resources red on each button.
 	var p := s.players[seat]
 	settle_btn.disabled = not (p.can_afford(Consts.COST_SETTLEMENT) and p.settlements_left > 0)
 	city_btn.disabled = not (p.can_afford(Consts.COST_CITY) and p.cities_left > 0)
 	road_btn.disabled = not (p.can_afford(Consts.COST_ROAD) and p.roads_left > 0)
 	dev_btn.disabled = not (p.can_afford(Consts.COST_DEV) and not s.dev_deck.is_empty())
+	for b in [settle_btn, city_btn, road_btn, dev_btn]:
+		UITheme.update_cost_button(b, p.resources)
 
 func _has_playable_dev(s: GameState, seat: int) -> bool:
 	if seat < 0 or s.dev_played_this_turn:

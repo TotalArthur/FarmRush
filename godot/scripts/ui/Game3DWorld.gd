@@ -50,6 +50,7 @@ func _on_state_changed() -> void:
 		if d != _last_dice:
 			_last_dice = d
 			dice.throw(Vector3.ZERO)
+			board.flash_production(d.x + d.y)
 	else:
 		_last_dice = Vector2i(-1, -1)
 
