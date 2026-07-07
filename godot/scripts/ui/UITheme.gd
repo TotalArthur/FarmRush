@@ -1,22 +1,23 @@
 class_name UITheme
 extends RefCounted
 
-## Shared modern "browser game" styling (colonist.io-ish): rounded white panels
-## with soft drop shadows, chunky colored buttons, and resource chips.
+## Shared styling: warm ivory panels with hairline borders and soft shadows,
+## one terracotta primary action color, and quiet bordered secondary buttons.
 ## Pure helpers — no state — used by both the menu and the in-game HUD.
 
-# Palette ------------------------------------------------------------------
-const BG_DEEP := Color("0f2a4a")        # page background (deep ocean blue)
-const BG_SIDEBAR := Color("13325c")
-const PANEL := Color("f6f8fc")          # near-white panel
-const PANEL_SOFT := Color("eef2f8")
-const INK := Color("22304a")            # dark text
-const INK_SOFT := Color("5a6b86")
-const ACCENT := Color("ef7d22")         # orange (primary action)
-const GREEN := Color("36b24a")
-const BLUE := Color("2f7bd6")
-const RED := Color("e0483b")
-const SLATE := Color("64748b")
+# Palette (warm neutrals + terracotta) --------------------------------------
+const BG_DEEP := Color("262624")        # page background (warm charcoal)
+const BG_SIDEBAR := Color("1f1e1d")
+const PANEL := Color("faf9f5")          # warm ivory panel
+const PANEL_SOFT := Color("f0eee6")
+const INK := Color("2a2a26")            # warm near-black text
+const INK_SOFT := Color("7a786e")
+const ACCENT := Color("cc6b49")         # terracotta (primary action)
+const GREEN := Color("4d9e63")
+const BLUE := Color("5478b8")
+const RED := Color("c14e3f")
+const SLATE := Color("83827a")
+const HAIRLINE := Color("d9d6ca")       # panel/button border tone
 
 # Resource accent colors (match the board).
 static func res_color(res: int) -> Color:
@@ -27,11 +28,11 @@ static func card_style(bg: Color = PANEL, radius: int = 12) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.set_corner_radius_all(radius)
-	sb.shadow_color = Color(0, 0, 0, 0.16)
+	sb.shadow_color = Color(0, 0, 0, 0.14)
 	sb.shadow_size = 10
 	sb.shadow_offset = Vector2(0, 4)
 	sb.set_border_width_all(1)
-	sb.border_color = Color(0, 0, 0, 0.07)
+	sb.border_color = HAIRLINE
 	sb.content_margin_left = 12
 	sb.content_margin_right = 12
 	sb.content_margin_top = 10
@@ -106,6 +107,39 @@ static func make_button(text: String, base: Color, fg: Color = Color.WHITE) -> B
 	b.text = text
 	style_button(b, base, fg)
 	return b
+
+## Quiet secondary button: ivory face, ink text, hairline border. Use for
+## everything that isn't the single primary action on screen.
+static func secondary_button(text: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.add_theme_stylebox_override("normal", _sec_box(PANEL))
+	b.add_theme_stylebox_override("hover", _sec_box(Color("f1efe7")))
+	b.add_theme_stylebox_override("pressed", _sec_box(Color("e7e4d8")))
+	b.add_theme_stylebox_override("disabled", _sec_box(Color(PANEL.r, PANEL.g, PANEL.b, 0.5)))
+	b.add_theme_stylebox_override("focus", _sec_box(Color("f1efe7")))
+	b.add_theme_color_override("font_color", INK)
+	b.add_theme_color_override("font_hover_color", INK)
+	b.add_theme_color_override("font_pressed_color", INK)
+	b.add_theme_color_override("font_disabled_color", Color(INK_SOFT.r, INK_SOFT.g, INK_SOFT.b, 0.6))
+	b.add_theme_font_size_override("font_size", 16)
+	add_button_juice(b)
+	return b
+
+static func _sec_box(bg: Color, radius: int = 10) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.set_corner_radius_all(radius)
+	sb.set_border_width_all(1)
+	sb.border_color = HAIRLINE
+	sb.content_margin_left = 14
+	sb.content_margin_right = 14
+	sb.content_margin_top = 10
+	sb.content_margin_bottom = 10
+	sb.shadow_color = Color(0, 0, 0, 0.10)
+	sb.shadow_size = 2
+	sb.shadow_offset = Vector2(0, 1)
+	return sb
 
 # Two-letter codes (fallback when an icon texture is missing).
 const RES_SHORT := {

@@ -8,11 +8,13 @@ digital tabletop** (Pummel Party / Mario Party vibe).
 ![board](docs/preview.png)
 ![menu](docs/menu.png)
 
-## Modern UI (colonist.io-style)
+## Modern UI
 
-The interface uses one shared style helper (`UITheme`) for a clean, modern
-browser-game feel — rounded white `StyleBoxFlat` panels with soft drop shadows
-and chunky colored buttons:
+The interface uses one shared style helper (`UITheme`) for a calm, premium
+feel: warm **ivory panels** with hairline borders and soft shadows over a
+warm charcoal backdrop, a single **terracotta primary** for the main action
+(Roll / End Turn / Start), and quiet bordered secondary buttons for
+everything else:
 
 - **Start screen** (`MainMenu`): left nav sidebar, **Bots / Casual / Ranked**
   tabs, a styled mode card (difficulty + opponent count), and a big Start button.
@@ -50,7 +52,7 @@ GameScreen (Control, anchors Full Rect, mouse_filter = Ignore)
 
 ## 3D tabletop view
 
-The board is a 3D scene (`Game3DWorld`) and is the **default** in-game view:
+The board is a 3D scene (`Game3DWorld`) and is the **only** in-game view:
 
 - **Beveled, two-layer hex tiles** (dirt/stone base + colored top) generated
   from the engine's axial coordinates, with slightly randomized top vertices so
@@ -64,11 +66,11 @@ The board is a 3D scene (`Game3DWorld`) and is the **default** in-game view:
   colonist.io's tan board border), with the calm blue ocean beyond it.
 - **Animated water shader** (`shaders/water.gdshader`) — TIME-driven wave
   displacement in colonist's friendly mid-blue.
-- **Micro-props**: clean low-poly primitives per resource — pine cone/trunk
-  trees on Wood, stacked brick prisms on Brick, fluffy capsule sheep on
-  Sheep, thin golden stalks on Wheat, blocky dark rocks on Ore — clustered
-  near each tile's center, well clear of the settlement circles on the
-  vertices.
+- **3D props on every resource tile** — double-cone low-poly pines on Wood,
+  stacked brick piles on Brick, fluffy sheep with heads and legs on Sheep,
+  headed wheat stalks on Wheat, and blocky rocks on Ore. Props sit in a ring
+  *around* the number token, so the numbers stay clearly readable and nothing
+  clips the settlement corners.
 - **Juicy feedback**: hexes lift on hover (Tween), settlements/roads/cities
   *pop in* with an elastic overshoot, and a translucent glowing **hologram**
   previews your placement under the cursor.
@@ -81,7 +83,6 @@ Camera (`CameraRig3D`): isometric ~55° tabletop view, **WASD / arrows** or
 **edge-scroll** to pan (clamped to the board), **scroll wheel** to zoom, and
 **middle-mouse drag** to orbit.
 
-> The 2D board is still available — launch with `HEXBOUND_2D=1` to use it.
 
 ### Renderer note (for the full toy look)
 
@@ -166,8 +167,7 @@ godot/
 │       ├── UITheme.gd         # shared StyleBoxFlat styling (panels/buttons/chips)
 │       ├── Main.gd            # screen router (3D by default)
 │       ├── MainMenu.gd, Lobby.gd
-│       ├── GameScreen.gd      # HUD, dialogs, interaction (2D + 3D)
-│       ├── BoardView.gd       # 2D board rendering + click picking
+│       ├── GameScreen.gd      # HUD overlay, dialogs, interaction
 │       ├── BoardView3D.gd     # 3D board: prisms, hover/pop animation, tokens
 │       ├── CameraRig3D.gd     # isometric pan/zoom/orbit camera
 │       └── Game3DWorld.gd     # assembles env + light + camera + board + HUD

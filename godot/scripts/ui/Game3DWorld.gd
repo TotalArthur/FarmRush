@@ -80,24 +80,23 @@ func _setup_environment() -> void:
 	# Deep, vibrant ocean-blue background (no bright sky) — a shade darker than
 	# the colonist-blue water plane so the sea fades out at the horizon.
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.05, 0.28, 0.48)
+	env.background_color = Color(0.035, 0.22, 0.38)
 
 	# Generous ambient fill: shaded faces stay readable, and because the key
 	# light is dimmer overall the scene reads soft rather than harsh.
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.62, 0.72, 0.84)
-	env.ambient_light_energy = 0.60
+	env.ambient_light_color = Color(0.60, 0.70, 0.82)
+	env.ambient_light_energy = 0.45
 
-	# Gentle color grading: ACES with a slight saturation lift only. Exposure
-	# and contrast are kept low-key — the board should feel bright-but-soft,
-	# never blown out or high-contrast.
+	# Rich-but-calm grading: pull exposure DOWN and saturation UP so colors
+	# read deep and vivid instead of bright and washed out.
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 0.85
+	env.tonemap_exposure = 0.78
 	env.tonemap_white = 1.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.08
-	env.adjustment_contrast = 1.0
-	env.adjustment_brightness = 1.0
+	env.adjustment_saturation = 1.25
+	env.adjustment_contrast = 1.02
+	env.adjustment_brightness = 0.97
 
 	# SSAO + glow need Forward+/Mobile (a RenderingDevice); guarded so the GL
 	# fallback never errors. SSAO is pushed hard so the seams between the chunky
@@ -111,8 +110,8 @@ func _setup_environment() -> void:
 		env.ssao_horizon = 0.06
 		# Subtle bloom so emissive holograms / rim highlights bleed nicely.
 		env.glow_enabled = true
-		env.glow_intensity = 0.30
-		env.glow_bloom = 0.10
+		env.glow_intensity = 0.16
+		env.glow_bloom = 0.05
 		env.glow_hdr_threshold = 1.0
 
 	we.environment = env

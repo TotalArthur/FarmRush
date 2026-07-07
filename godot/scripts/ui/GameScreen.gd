@@ -15,8 +15,8 @@ extends Control
 ##   │         └─ Buttons row (Roll / End / Road / Settlement / City / Card / Trade)
 ##   └─ Toast + modal overlays (discard / steal / trade / dev / game over)
 
-var board                        # BoardView (2D) or BoardView3D (duck-typed)
-var external_board = null        # if set, HUD overlays this 3D board
+var board: BoardView3D           # the 3D board this HUD overlays
+var external_board = null        # set by Game3DWorld before add_child
 
 var prompt_label: Label
 var turn_swatch: ColorRect
@@ -57,21 +57,7 @@ func _ready() -> void:
 #  Static layout
 # ===========================================================================
 func _build_ui() -> void:
-	if external_board != null:
-		board = external_board
-	else:
-		var bg := ColorRect.new()
-		bg.color = UITheme.BG_DEEP
-		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(bg)
-		board = BoardView.new()
-		board.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		board.offset_top = 64
-		board.offset_bottom = -160
-		board.offset_right = -12
-		add_child(board)
-
+	board = external_board
 	_build_top_banner()
 	_build_right_hub()
 	_build_action_hub()
@@ -154,7 +140,7 @@ func _build_right_hub() -> void:
 	log_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	lv.add_child(log_label)
 
-	_log_btn = UITheme.make_button("Log", UITheme.SLATE)
+	_log_btn = UITheme.secondary_button("Log")
 	_log_btn.anchor_left = 1.0
 	_log_btn.anchor_right = 1.0
 	_log_btn.anchor_top = 1.0
@@ -198,13 +184,15 @@ func _build_action_hub() -> void:
 	dice_label.custom_minimum_size = Vector2(96, 0)
 	dice_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
-	roll_btn = _btn("Roll Dice", UITheme.GREEN, _on_roll)
-	settle_btn = _btn("Settlement", UITheme.BLUE, func(): _start_pick("settlement"))
-	city_btn = _btn("City", UITheme.BLUE, func(): _start_pick("city"))
-	road_btn = _btn("Road", UITheme.BLUE, func(): _start_pick("road"))
-	dev_btn = _btn("Buy Card", UITheme.BLUE, _on_buy_dev)
-	play_dev_btn = _btn("Play Card", UITheme.SLATE, _on_play_dev)
-	trade_btn = _btn("Trade", UITheme.SLATE, _on_trade)
+	# One primary color (terracotta) for the turn-flow actions; everything else
+	# is a quiet bordered secondary button so the bar reads calm.
+	roll_btn = _btn("Roll Dice", UITheme.ACCENT, _on_roll)
+	settle_btn = _sbtn("Settlement", func(): _start_pick("settlement"))
+	city_btn = _sbtn("City", func(): _start_pick("city"))
+	road_btn = _sbtn("Road", func(): _start_pick("road"))
+	dev_btn = _sbtn("Buy Card", _on_buy_dev)
+	play_dev_btn = _sbtn("Play Card", _on_play_dev)
+	trade_btn = _sbtn("Trade", _on_trade)
 	end_btn = _btn("End Turn", UITheme.ACCENT, _on_end_turn)
 
 	actions_bar.add_child(dice_label)
@@ -213,6 +201,11 @@ func _build_action_hub() -> void:
 
 func _btn(text: String, color: Color, cb: Callable) -> Button:
 	var b := UITheme.make_button(text, color)
+	b.pressed.connect(cb)
+	return b
+
+func _sbtn(text: String, cb: Callable) -> Button:
+	var b := UITheme.secondary_button(text)
 	b.pressed.connect(cb)
 	return b
 
@@ -364,46 +357,46 @@ func _refresh_log(s: GameState) -> void:
 func _auto_board_mode(s: GameState) -> void:
 	var seat := Game.active_human_seat()
 	if seat == -1:
-		board.set_mode(BoardView.PickMode.NONE, -1)
+		board.set_mode(BoardView3D.PickMode.NONE, -1)
 		_close_overlay()
 		return
 	match s.phase:
 		Consts.Phase.SETUP:
-			board.set_mode(BoardView.PickMode.ROAD if s.setup_need_road else BoardView.PickMode.SETTLEMENT, seat)
+			board.set_mode(BoardView3D.PickMode.ROAD if s.setup_need_road else BoardView3D.PickMode.SETTLEMENT, seat)
 		Consts.Phase.MOVE_ROBBER:
-			board.set_mode(BoardView.PickMode.ROBBER, seat)
+			board.set_mode(BoardView3D.PickMode.ROBBER, seat)
 		Consts.Phase.DISCARD:
-			board.set_mode(BoardView.PickMode.NONE, seat)
+			board.set_mode(BoardView3D.PickMode.NONE, seat)
 			_open_discard_dialog(s, seat)
 		Consts.Phase.MAIN:
 			if _free_road_mode and s.free_roads > 0:
-				board.set_mode(BoardView.PickMode.ROAD, seat)
+				board.set_mode(BoardView3D.PickMode.ROAD, seat)
 			else:
 				_free_road_mode = false
-				if board.pick_mode == BoardView.PickMode.ROBBER:
-					board.set_mode(BoardView.PickMode.NONE, seat)
+				if board.pick_mode == BoardView3D.PickMode.ROBBER:
+					board.set_mode(BoardView3D.PickMode.NONE, seat)
 		_:
-			board.set_mode(BoardView.PickMode.NONE, seat)
+			board.set_mode(BoardView3D.PickMode.NONE, seat)
 
 func _start_pick(kind: String) -> void:
 	var seat := Game.active_human_seat()
 	if seat == -1:
 		return
 	match kind:
-		"settlement": board.set_mode(BoardView.PickMode.SETTLEMENT, seat)
-		"city": board.set_mode(BoardView.PickMode.CITY, seat)
-		"road": board.set_mode(BoardView.PickMode.ROAD, seat)
+		"settlement": board.set_mode(BoardView3D.PickMode.SETTLEMENT, seat)
+		"city": board.set_mode(BoardView3D.PickMode.CITY, seat)
+		"road": board.set_mode(BoardView3D.PickMode.ROAD, seat)
 
 func _on_vertex_picked(v: int) -> void:
 	var s := Game.state
 	if s.phase == Consts.Phase.SETUP:
 		Game.apply_action({ "type": "setup_settlement", "vertex": v })
-	elif board.pick_mode == BoardView.PickMode.CITY:
+	elif board.pick_mode == BoardView3D.PickMode.CITY:
 		Game.apply_action({ "type": "build_city", "vertex": v })
-		board.set_mode(BoardView.PickMode.NONE, board.acting_seat)
+		board.set_mode(BoardView3D.PickMode.NONE, board.acting_seat)
 	else:
 		Game.apply_action({ "type": "build_settlement", "vertex": v })
-		board.set_mode(BoardView.PickMode.NONE, board.acting_seat)
+		board.set_mode(BoardView3D.PickMode.NONE, board.acting_seat)
 
 func _on_edge_picked(e: int) -> void:
 	var s := Game.state
@@ -413,7 +406,7 @@ func _on_edge_picked(e: int) -> void:
 		Game.apply_action({ "type": "build_road", "edge": e })
 		if not (_free_road_mode and s.free_roads > 1):
 			_free_road_mode = false
-			board.set_mode(BoardView.PickMode.NONE, board.acting_seat)
+			board.set_mode(BoardView3D.PickMode.NONE, board.acting_seat)
 
 func _on_hex_picked(h: int) -> void:
 	var s := Game.state
@@ -436,7 +429,7 @@ func _on_buy_dev() -> void:
 	Game.apply_action({ "type": "buy_dev" })
 
 func _on_end_turn() -> void:
-	board.set_mode(BoardView.PickMode.NONE, -1)
+	board.set_mode(BoardView3D.PickMode.NONE, -1)
 	Game.apply_action({ "type": "end_turn" })
 
 # ===========================================================================

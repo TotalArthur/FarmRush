@@ -221,21 +221,21 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	var rough_a := 0.5
 	var rough_b := 0.4
 	var metallic := 0.0
-	# colonist.io-matched tile palette, kept saturated and toy-bright in 3D.
+	# colonist.io-matched tile palette, deepened so nothing reads washed out.
 	match res:
 		Consts.Res.WOOD:        # deep forest green
-			ca = Color("1e7a3a"); cb = Color("4cb057"); pattern = 0; scale = 7.0
+			ca = Color("176e31"); cb = Color("3fa04b"); pattern = 0; scale = 7.0
 		Consts.Res.SHEEP:       # fresh lime pasture
-			ca = Color("8cc63e"); cb = Color("bbe273"); pattern = 0; scale = 6.0
+			ca = Color("7cb832"); cb = Color("a5d55c"); pattern = 0; scale = 6.0
 		Consts.Res.WHEAT:       # rich golden field with crop furrows
-			ca = Color("e8a91c"); cb = Color("ffd344"); pattern = 4; scale = 8.0
+			ca = Color("dd9e10"); cb = Color("f7c832"); pattern = 4; scale = 8.0
 		Consts.Res.BRICK:       # warm clay with brick-course texture
-			ca = Color("b34f22"); cb = Color("f4a06a"); pattern = 3; scale = 6.0
+			ca = Color("a8481e"); cb = Color("e88a50"); pattern = 3; scale = 6.0
 		Consts.Res.ORE:         # cool slate with a gleam
-			ca = Color("75828f"); cb = Color("b4bfca"); pattern = 1; scale = 6.0
+			ca = Color("6b7885"); cb = Color("a3aeb9"); pattern = 1; scale = 6.0
 			rough_a = 0.42; rough_b = 0.30; metallic = 0.30
 		_:                      # desert sand
-			ca = Color("dfcb8d"); cb = Color("f2e4ae"); pattern = 2; scale = 5.0
+			ca = Color("d4bd7a"); cb = Color("e8d69a"); pattern = 2; scale = 5.0
 	m.set_shader_parameter("color_a", ca)
 	m.set_shader_parameter("color_b", cb)
 	m.set_shader_parameter("noise_scale", scale)
@@ -247,7 +247,7 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	# SSAO now does the deep crevice shadows, so ease off the in-shader darken;
 	# rim kept low so the board doesn't read overly bright/contrasty.
 	m.set_shader_parameter("edge_darken", 0.14)
-	m.set_shader_parameter("rim_strength", 0.07)
+	m.set_shader_parameter("rim_strength", 0.03)
 	m.set_shader_parameter("bump_strength", 0.4)
 	_mat_cache[key] = m
 	return m
@@ -264,9 +264,9 @@ func _spawn_water() -> void:
 	water.mesh = plane
 	var wm := ShaderMaterial.new()
 	wm.shader = _water_shader
-	# colonist.io ocean: friendly mid-blue, still deep enough for contrast.
-	wm.set_shader_parameter("deep_color", Color("14639f"))
-	wm.set_shader_parameter("shallow_color", Color("3f9fd6"))
+	# colonist.io ocean: friendly mid-blue, deep enough to never look washed.
+	wm.set_shader_parameter("deep_color", Color("0f5589"))
+	wm.set_shader_parameter("shallow_color", Color("358dc4"))
 	water.material_override = wm
 	water.position = Vector3(0, WATER_Y, 0)
 	add_child(water)
@@ -278,8 +278,8 @@ func _spawn_beach() -> void:
 	var beach_mesh := _make_hex_prism(_r, BEACH_HEIGHT)
 	var mat := ShaderMaterial.new()
 	mat.shader = _terrain_shader
-	mat.set_shader_parameter("color_a", Color("bfa361"))
-	mat.set_shader_parameter("color_b", Color("dcc78a"))
+	mat.set_shader_parameter("color_a", Color("ab8f50"))
+	mat.set_shader_parameter("color_b", Color("cdb578"))
 	mat.set_shader_parameter("noise_scale", 4.0)
 	mat.set_shader_parameter("pattern_type", 2)
 	mat.set_shader_parameter("rough_a", 0.95)
@@ -287,7 +287,7 @@ func _spawn_beach() -> void:
 	mat.set_shader_parameter("metallic_amt", 0.0)
 	mat.set_shader_parameter("hex_radius", _r)
 	mat.set_shader_parameter("edge_darken", 0.18)
-	mat.set_shader_parameter("rim_strength", 0.04)
+	mat.set_shader_parameter("rim_strength", 0.02)
 	# Pointy-top hexes: neighbors sit across the 6 edges at 60° steps,
 	# center-to-center distance sqrt(3) * radius.
 	var step := _r * sqrt(3.0)
@@ -640,126 +640,167 @@ func _make_token(number: int) -> Node3D:
 	return root
 
 ## ===========================================================================
-##  Low-poly cartoon props (clean primitive shapes, clustered near tile
-##  center so they never clip into the settlement circles on the vertices,
-##  which sit out at radius _r).
+##  Low-poly cartoon props. Arranged in a RING around the number token so the
+##  digits at the tile center stay clearly readable, and capped well inside
+##  the vertex circle (settlement markers sit out at radius _r).
 ## ===========================================================================
-const PROP_MAX_FRAC := 0.35   # keep every prop well inside the vertex ring
-
 func _scatter_props(tile: MeshInstance3D, res: int, seed_val: int) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_val
 	match res:
 		Consts.Res.WOOD:
-			for i in range(rng.randi_range(3, 4)):
-				tile.add_child(_make_tree(_prop_pos(rng, 0.32)))
+			for pos in _prop_ring(rng, 5):
+				tile.add_child(_make_tree(pos, rng.randf_range(0.85, 1.2)))
 		Consts.Res.BRICK:
-			_make_brick_pile(tile, rng)
+			for pos in _prop_ring(rng, 2, 0.42, 0.5):
+				_make_brick_pile(tile, pos, rng)
 		Consts.Res.SHEEP:
-			for i in range(rng.randi_range(1, 2)):
-				tile.add_child(_make_sheep(_prop_pos(rng, 0.25)))
+			for pos in _prop_ring(rng, 2, 0.42, 0.52):
+				tile.add_child(_make_sheep(pos, rng))
 		Consts.Res.WHEAT:
-			for i in range(rng.randi_range(5, 7)):
-				tile.add_child(_make_wheat_stalk(_prop_pos(rng, 0.33)))
+			for pos in _prop_ring(rng, 8):
+				tile.add_child(_make_wheat_stalk(pos, rng))
 		Consts.Res.ORE:
-			for i in range(rng.randi_range(2, 3)):
-				tile.add_child(_make_ore_rock(_prop_pos(rng, 0.28), rng))
+			for pos in _prop_ring(rng, 3):
+				tile.add_child(_make_ore_rock(pos, rng))
 		_:
 			pass  # desert: bare sand, no props
 
-func _prop_pos(rng: RandomNumberGenerator, max_frac: float) -> Vector3:
-	var ang := rng.randf_range(0.0, TAU)
-	var dist := rng.randf_range(0.0, minf(max_frac, PROP_MAX_FRAC)) * _r
-	return Vector3(cos(ang) * dist, TILE_HEIGHT, sin(ang) * dist)
+## Evenly spaced ring positions (with jitter) between r_min.._r*r_max — outside
+## the token disc (0.38 _r), inside the settlement corners (1.0 _r).
+func _prop_ring(rng: RandomNumberGenerator, count: int, r_min := 0.46, r_max := 0.56) -> Array:
+	var out: Array = []
+	var base := rng.randf_range(0.0, TAU)
+	for i in range(count):
+		var ang := base + TAU * float(i) / float(count) + rng.randf_range(-0.22, 0.22)
+		var dist := rng.randf_range(r_min, r_max) * _r
+		out.append(Vector3(cos(ang) * dist, TILE_HEIGHT, sin(ang) * dist))
+	return out
 
-func _make_tree(pos: Vector3) -> Node3D:
+func _make_tree(pos: Vector3, s: float) -> Node3D:
 	var root := Node3D.new()
 	root.position = pos
 	var trunk := MeshInstance3D.new()
 	var tcyl := CylinderMesh.new()
-	tcyl.top_radius = _r * 0.025
-	tcyl.bottom_radius = _r * 0.03
-	tcyl.height = _r * 0.12
+	tcyl.top_radius = _r * 0.035 * s
+	tcyl.bottom_radius = _r * 0.045 * s
+	tcyl.height = _r * 0.16 * s
 	trunk.mesh = tcyl
 	trunk.material_override = _plastic(Color("6b4226"))
-	trunk.position = Vector3(0, _r * 0.06, 0)
+	trunk.position = Vector3(0, _r * 0.08 * s, 0)
 	root.add_child(trunk)
-	var foliage := MeshInstance3D.new()
-	var cone := CylinderMesh.new()
-	cone.top_radius = 0.0
-	cone.bottom_radius = _r * 0.11
-	cone.height = _r * 0.22
-	cone.radial_segments = 8   # faceted low-poly look
-	foliage.mesh = cone
-	foliage.material_override = _plastic(Color("2f8f3b"))
-	foliage.position = Vector3(0, _r * 0.12 + _r * 0.11, 0)
-	root.add_child(foliage)
+	# Two stacked cones for a fuller stylized pine.
+	var lower := MeshInstance3D.new()
+	var cone1 := CylinderMesh.new()
+	cone1.top_radius = 0.0
+	cone1.bottom_radius = _r * 0.16 * s
+	cone1.height = _r * 0.26 * s
+	cone1.radial_segments = 8   # faceted low-poly look
+	lower.mesh = cone1
+	lower.material_override = _plastic(Color("2c8a3d"))
+	lower.position = Vector3(0, _r * (0.16 + 0.13) * s, 0)
+	root.add_child(lower)
+	var upper := MeshInstance3D.new()
+	var cone2 := CylinderMesh.new()
+	cone2.top_radius = 0.0
+	cone2.bottom_radius = _r * 0.11 * s
+	cone2.height = _r * 0.20 * s
+	cone2.radial_segments = 8
+	upper.mesh = cone2
+	upper.material_override = _plastic(Color("3aa04c"))
+	upper.position = Vector3(0, _r * (0.16 + 0.26 + 0.05) * s, 0)
+	root.add_child(upper)
 	return root
 
-func _make_brick_pile(tile: MeshInstance3D, rng: RandomNumberGenerator) -> void:
-	var base := _prop_pos(rng, 0.2)
+func _make_brick_pile(tile: MeshInstance3D, base: Vector3, rng: RandomNumberGenerator) -> void:
 	var mat := _plastic(Color("a83226"))
-	var offsets: Array[Vector3] = [Vector3(-0.06, 0.0, 0.0), Vector3(0.06, 0.0, 0.0), Vector3(0.0, 0.0, 0.07)]
-	for off in offsets:
+	var brick := Vector3(_r * 0.17, _r * 0.08, _r * 0.10)
+	# 3 bricks on the ground, 2 stacked across them.
+	var layout := [
+		Vector3(-brick.x * 0.55, brick.y * 0.5, 0),
+		Vector3(brick.x * 0.55, brick.y * 0.5, 0),
+		Vector3(0, brick.y * 0.5, brick.z * 1.05),
+		Vector3(-brick.x * 0.3, brick.y * 1.5, brick.z * 0.3),
+		Vector3(brick.x * 0.35, brick.y * 1.5, brick.z * 0.35),
+	]
+	for off in layout:
 		var b := MeshInstance3D.new()
 		var box := BoxMesh.new()
-		box.size = Vector3(_r * 0.12, _r * 0.06, _r * 0.07)
+		box.size = brick
 		b.mesh = box
 		b.material_override = mat
-		b.position = base + off * _r + Vector3(0, _r * 0.03, 0)
-		b.rotation.y = rng.randf_range(-0.15, 0.15)
+		b.position = base + off
+		b.rotation.y = rng.randf_range(-0.18, 0.18)
 		tile.add_child(b)
-	var top := MeshInstance3D.new()
-	var box2 := BoxMesh.new()
-	box2.size = Vector3(_r * 0.12, _r * 0.06, _r * 0.07)
-	top.mesh = box2
-	top.material_override = mat
-	top.position = base + Vector3(0, _r * 0.09, 0)
-	top.rotation.y = rng.randf_range(-0.2, 0.2)
-	tile.add_child(top)
 
-func _make_sheep(pos: Vector3) -> Node3D:
+func _make_sheep(pos: Vector3, rng: RandomNumberGenerator) -> Node3D:
 	var root := Node3D.new()
 	root.position = pos
+	root.rotation.y = rng.randf_range(0.0, TAU)
 	var body := MeshInstance3D.new()
 	var cap := CapsuleMesh.new()
-	cap.radius = _r * 0.08
-	cap.height = _r * 0.2
+	cap.radius = _r * 0.12
+	cap.height = _r * 0.30
 	body.mesh = cap
 	body.material_override = _plastic(Color("f5f5f0"))
 	body.rotation.z = deg_to_rad(90)
-	body.position = Vector3(0, _r * 0.09, 0)
+	body.position = Vector3(0, _r * 0.13, 0)
 	root.add_child(body)
 	var head := MeshInstance3D.new()
 	var sph := SphereMesh.new()
-	sph.radius = _r * 0.045
-	sph.height = _r * 0.09
+	sph.radius = _r * 0.065
+	sph.height = _r * 0.13
 	head.mesh = sph
 	head.material_override = _plastic(Color("2c2c2c"))
-	head.position = Vector3(_r * 0.11, _r * 0.09, 0)
+	head.position = Vector3(_r * 0.17, _r * 0.15, 0)
 	root.add_child(head)
+	# Four stubby legs so it reads as an animal, not a blob.
+	for lx in [-0.07, 0.07]:
+		for lz in [-0.05, 0.05]:
+			var leg := MeshInstance3D.new()
+			var lcyl := CylinderMesh.new()
+			lcyl.top_radius = _r * 0.018
+			lcyl.bottom_radius = _r * 0.018
+			lcyl.height = _r * 0.07
+			leg.mesh = lcyl
+			leg.material_override = _plastic(Color("2c2c2c"))
+			leg.position = Vector3(_r * lx, _r * 0.035, _r * lz)
+			root.add_child(leg)
 	return root
 
-func _make_wheat_stalk(pos: Vector3) -> MeshInstance3D:
-	var m := MeshInstance3D.new()
+func _make_wheat_stalk(pos: Vector3, rng: RandomNumberGenerator) -> Node3D:
+	var root := Node3D.new()
+	root.position = pos
+	root.rotation.z = rng.randf_range(-0.12, 0.12)
+	var stalk := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = _r * 0.012
-	cyl.bottom_radius = _r * 0.018
-	cyl.height = _r * 0.2
-	m.mesh = cyl
-	m.material_override = _plastic(Color("e0b13a"))
-	m.position = pos + Vector3(0, _r * 0.1, 0)
-	return m
+	cyl.top_radius = _r * 0.016
+	cyl.bottom_radius = _r * 0.024
+	cyl.height = _r * 0.30
+	stalk.mesh = cyl
+	stalk.material_override = _plastic(Color("d9a82f"))
+	stalk.position = Vector3(0, _r * 0.15, 0)
+	root.add_child(stalk)
+	# Grain head: small bright capsule on top.
+	var grain := MeshInstance3D.new()
+	var cap := CapsuleMesh.new()
+	cap.radius = _r * 0.028
+	cap.height = _r * 0.10
+	grain.mesh = cap
+	grain.material_override = _plastic(Color("f2c94c"))
+	grain.position = Vector3(0, _r * 0.33, 0)
+	root.add_child(grain)
+	return root
 
 func _make_ore_rock(pos: Vector3, rng: RandomNumberGenerator) -> MeshInstance3D:
 	var m := MeshInstance3D.new()
 	var box := BoxMesh.new()
-	var s := _r * rng.randf_range(0.09, 0.14)
+	var s := _r * rng.randf_range(0.13, 0.19)
 	box.size = Vector3(s, s * rng.randf_range(0.7, 1.0), s * rng.randf_range(0.8, 1.1))
 	m.mesh = box
-	m.material_override = _plastic(Color("4a4d52"))
-	m.position = pos + Vector3(0, box.size.y * 0.5, 0)
-	m.rotation = Vector3(rng.randf_range(-0.2, 0.2), rng.randf_range(0.0, TAU), rng.randf_range(-0.2, 0.2))
+	m.material_override = _plastic(Color("484b50"))
+	m.position = pos + Vector3(0, box.size.y * 0.45, 0)
+	m.rotation = Vector3(rng.randf_range(-0.25, 0.25), rng.randf_range(0.0, TAU), rng.randf_range(-0.25, 0.25))
 	return m
 
 func _make_marker(pos: Vector3, color: Color = Color(1, 1, 1)) -> MeshInstance3D:
