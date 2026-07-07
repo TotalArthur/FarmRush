@@ -122,8 +122,8 @@ func _build_right_hub() -> void:
 	_log_panel.anchor_bottom = 1.0
 	_log_panel.offset_left = -392
 	_log_panel.offset_right = -12
-	_log_panel.offset_top = -470
-	_log_panel.offset_bottom = -216
+	_log_panel.offset_top = -390
+	_log_panel.offset_bottom = -136
 	_log_panel.visible = false
 	add_child(_log_panel)
 	var lv := VBoxContainer.new()
@@ -140,52 +140,53 @@ func _build_right_hub() -> void:
 	log_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	lv.add_child(log_label)
 
+	# The toggle button itself lives in the bottom-right action cluster
+	# (added there by _build_action_hub).
 	_log_btn = UITheme.secondary_button("Log")
-	_log_btn.anchor_left = 1.0
-	_log_btn.anchor_right = 1.0
-	_log_btn.anchor_top = 1.0
-	_log_btn.anchor_bottom = 1.0
-	_log_btn.offset_left = -92
-	_log_btn.offset_right = -12
-	_log_btn.offset_top = -208
-	_log_btn.offset_bottom = -166
 	_log_btn.toggle_mode = true
 	_log_btn.toggled.connect(func(on: bool): _log_panel.visible = on)
-	add_child(_log_btn)
 
 func _build_action_hub() -> void:
+	# Hand cards float bottom-left — the cards themselves ARE the UI, no
+	# full-width panel eating screen space.
+	hand_bar = HBoxContainer.new()
+	hand_bar.anchor_left = 0.0
+	hand_bar.anchor_right = 0.0
+	hand_bar.anchor_top = 1.0
+	hand_bar.anchor_bottom = 1.0
+	hand_bar.offset_left = 14
+	hand_bar.offset_top = -108
+	hand_bar.offset_bottom = -14
+	hand_bar.grow_horizontal = Control.GROW_DIRECTION_END
+	hand_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	hand_bar.add_theme_constant_override("separation", 8)
+	add_child(hand_bar)
+
+	# Compact action cluster bottom-right; the panel auto-sizes to its content
+	# so there is zero wasted space.
 	var panel := UITheme.make_panel(UITheme.PANEL, 14)
+	panel.anchor_left = 1.0
+	panel.anchor_right = 1.0
 	panel.anchor_top = 1.0
 	panel.anchor_bottom = 1.0
-	panel.anchor_left = 0.0
-	panel.anchor_right = 1.0
-	panel.offset_left = 12
+	panel.offset_left = -12
 	panel.offset_right = -12
-	panel.offset_top = -148
+	panel.offset_top = -12
 	panel.offset_bottom = -12
+	panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_child(panel)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 10)
+	vb.add_theme_constant_override("separation", 8)
 	panel.add_child(vb)
 
-	hand_bar = HBoxContainer.new()
-	hand_bar.alignment = BoxContainer.ALIGNMENT_CENTER
-	hand_bar.add_theme_constant_override("separation", 8)
-	vb.add_child(hand_bar)
-
-	actions_bar = HBoxContainer.new()
-	actions_bar.alignment = BoxContainer.ALIGNMENT_CENTER
-	actions_bar.add_theme_constant_override("separation", 8)
-	vb.add_child(actions_bar)
-
 	dice_label = Label.new()
-	dice_label.add_theme_font_size_override("font_size", 18)
-	dice_label.add_theme_color_override("font_color", UITheme.INK)
-	dice_label.custom_minimum_size = Vector2(96, 0)
+	dice_label.add_theme_font_size_override("font_size", 16)
+	dice_label.add_theme_color_override("font_color", UITheme.INK_SOFT)
 	dice_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
 	# One primary color (terracotta) for the turn-flow actions; everything else
-	# is a quiet bordered secondary button so the bar reads calm.
+	# is a quiet bordered secondary button so the cluster reads calm.
 	roll_btn = _btn("Roll Dice", UITheme.ACCENT, _on_roll)
 	settle_btn = _sbtn("Settlement", func(): _start_pick("settlement"))
 	city_btn = _sbtn("City", func(): _start_pick("city"))
@@ -195,9 +196,22 @@ func _build_action_hub() -> void:
 	trade_btn = _sbtn("Trade", _on_trade)
 	end_btn = _btn("End Turn", UITheme.ACCENT, _on_end_turn)
 
-	actions_bar.add_child(dice_label)
-	for b in [roll_btn, road_btn, settle_btn, city_btn, dev_btn, play_dev_btn, trade_btn, end_btn]:
+	var row1 := HBoxContainer.new()
+	row1.alignment = BoxContainer.ALIGNMENT_END
+	row1.add_theme_constant_override("separation", 8)
+	row1.add_child(dice_label)
+	row1.add_child(_log_btn)
+	row1.add_child(play_dev_btn)
+	row1.add_child(roll_btn)
+	row1.add_child(end_btn)
+	vb.add_child(row1)
+
+	actions_bar = HBoxContainer.new()
+	actions_bar.alignment = BoxContainer.ALIGNMENT_END
+	actions_bar.add_theme_constant_override("separation", 8)
+	for b in [road_btn, settle_btn, city_btn, dev_btn, trade_btn]:
 		actions_bar.add_child(b)
+	vb.add_child(actions_bar)
 
 func _btn(text: String, color: Color, cb: Callable) -> Button:
 	var b := UITheme.make_button(text, color)
@@ -296,13 +310,8 @@ func _refresh_hand(s: GameState) -> void:
 	if seat < 0 or seat >= s.players.size():
 		return
 	var p := s.players[seat]
-	var title := Label.new()
-	title.text = "Hand:"
-	title.add_theme_color_override("font_color", UITheme.INK)
-	title.add_theme_font_size_override("font_size", 16)
-	hand_bar.add_child(title)
 	for r in Consts.RES_ALL:
-		hand_bar.add_child(UITheme.resource_chip(r, p.resources.get(r, 0), true))
+		hand_bar.add_child(UITheme.hand_card(r, p.resources.get(r, 0)))
 
 func _refresh_actions(s: GameState) -> void:
 	var seat := Game.active_human_seat()

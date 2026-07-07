@@ -23,12 +23,12 @@ everything else:
   - **Top banner** — current player + prompt.
   - **Players card** — a compact top-right card (color, name, VP,
     resource/dev-card counts, knights, Longest Road / Largest Army).
-  - **Log button** — the game log is tucked behind a bottom-right **Log**
-    toggle button; it pops up as a panel only when you want it.
-  - **Bottom action hub** (full width) — the active hand as resource chips
-    plus chunky **Roll / Road / Settlement / City / Buy Card / Play Card /
-    Trade / End Turn** buttons that enable only when the action is
-    legal/affordable.
+  - **Hand cards** — your resources are real card props floating bottom-left:
+    colored card faces with an icon chip and count, dimmed while empty.
+  - **Action cluster** — a compact auto-sized panel bottom-right with the
+    dice readout, **Log** toggle, and **Roll / End Turn** in terracotta over
+    a row of quiet build/trade buttons that enable only when the action is
+    legal/affordable. No full-width bars, no wasted space.
 
 ### Editor node tree for the HUD
 
@@ -66,11 +66,12 @@ The board is a 3D scene (`Game3DWorld`) and is the **only** in-game view:
   colonist.io's tan board border), with the calm blue ocean beyond it.
 - **Animated water shader** (`shaders/water.gdshader`) — TIME-driven wave
   displacement in colonist's friendly mid-blue.
-- **3D props on every resource tile** — double-cone low-poly pines on Wood,
-  stacked brick piles on Brick, fluffy sheep with heads and legs on Sheep,
-  headed wheat stalks on Wheat, and blocky rocks on Ore. Props sit in a ring
-  *around* the number token, so the numbers stay clearly readable and nothing
-  clips the settlement corners.
+- **Real low-poly 3D models on every resource tile** (Golf With Your Friends
+  vibe) — [Kenney Nature Kit](https://kenney.nl/assets/nature-kit) (CC0)
+  trees on Wood, rocks on Ore, wheat crop rows on Wheat, grass tufts on
+  Sheep, and a cactus + flat stone on the Desert, plus procedural sheep and
+  brick piles. Props sit in a ring *around* the number token, so the numbers
+  stay clearly readable and nothing clips the settlement corners.
 - **Juicy feedback**: hexes lift on hover (Tween), settlements/roads/cities
   *pop in* with an elastic overshoot, and a translucent glowing **hologram**
   previews your placement under the cursor.

@@ -176,6 +176,54 @@ static func resource_icon(res: int, size: int = 24) -> Control:
 	sw.add_child(l)
 	return sw
 
+# Hand card (a real card prop: colored face, icon chip, count) -------------
+static func hand_card(res: int, count: int) -> Control:
+	var col: Color = Consts.RES_COLOR[res]
+	var card := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = col
+	sb.set_corner_radius_all(10)
+	sb.set_border_width_all(2)
+	sb.border_color = col.darkened(0.35)
+	sb.shadow_color = Color(0, 0, 0, 0.32)
+	sb.shadow_size = 6
+	sb.shadow_offset = Vector2(0, 3)
+	sb.content_margin_left = 7
+	sb.content_margin_right = 7
+	sb.content_margin_top = 9
+	sb.content_margin_bottom = 7
+	card.add_theme_stylebox_override("panel", sb)
+	card.custom_minimum_size = Vector2(64, 90)
+	var v := VBoxContainer.new()
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 5)
+	card.add_child(v)
+	# Ivory inner chip carrying the resource icon.
+	var chip := PanelContainer.new()
+	var cb := StyleBoxFlat.new()
+	cb.bg_color = Color(1, 1, 1, 0.88)
+	cb.set_corner_radius_all(9)
+	cb.content_margin_left = 5
+	cb.content_margin_right = 5
+	cb.content_margin_top = 5
+	cb.content_margin_bottom = 5
+	chip.add_theme_stylebox_override("panel", cb)
+	chip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	chip.add_child(resource_icon(res, 30))
+	v.add_child(chip)
+	var num := Label.new()
+	num.text = str(count)
+	num.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	num.add_theme_font_size_override("font_size", 22)
+	num.add_theme_color_override("font_color", Color.WHITE)
+	num.add_theme_color_override("font_outline_color", col.darkened(0.5))
+	num.add_theme_constant_override("outline_size", 4)
+	v.add_child(num)
+	if count == 0:
+		card.modulate = Color(0.9, 0.9, 0.9, 0.6)
+	add_button_juice(card)
+	return card
+
 # Resource chip (icon + count) --------------------------------------------
 static func resource_chip(res: int, count: int, big: bool = false) -> PanelContainer:
 	var p := PanelContainer.new()

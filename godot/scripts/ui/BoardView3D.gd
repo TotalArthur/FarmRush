@@ -221,21 +221,23 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	var rough_a := 0.5
 	var rough_b := 0.4
 	var metallic := 0.0
-	# colonist.io-matched tile palette, deepened so nothing reads washed out.
+	# GWYF-style palette: deep saturated colors with the a/b pair kept CLOSE
+	# together, so surfaces read as clean smooth color with soft variation
+	# instead of busy noise.
 	match res:
 		Consts.Res.WOOD:        # deep forest green
-			ca = Color("176e31"); cb = Color("3fa04b"); pattern = 0; scale = 7.0
+			ca = Color("1d7a37"); cb = Color("339a47"); pattern = 0; scale = 5.0
 		Consts.Res.SHEEP:       # fresh lime pasture
-			ca = Color("7cb832"); cb = Color("a5d55c"); pattern = 0; scale = 6.0
+			ca = Color("84bd3a"); cb = Color("9dcf52"); pattern = 0; scale = 4.5
 		Consts.Res.WHEAT:       # rich golden field with crop furrows
-			ca = Color("dd9e10"); cb = Color("f7c832"); pattern = 4; scale = 8.0
+			ca = Color("e1a513"); cb = Color("f2c02c"); pattern = 4; scale = 8.0
 		Consts.Res.BRICK:       # warm clay with brick-course texture
-			ca = Color("a8481e"); cb = Color("e88a50"); pattern = 3; scale = 6.0
+			ca = Color("a8481e"); cb = Color("e08348"); pattern = 3; scale = 6.0
 		Consts.Res.ORE:         # cool slate with a gleam
-			ca = Color("6b7885"); cb = Color("a3aeb9"); pattern = 1; scale = 6.0
+			ca = Color("707d8a"); cb = Color("96a2ad"); pattern = 1; scale = 6.0
 			rough_a = 0.42; rough_b = 0.30; metallic = 0.30
 		_:                      # desert sand
-			ca = Color("d4bd7a"); cb = Color("e8d69a"); pattern = 2; scale = 5.0
+			ca = Color("d6bf7e"); cb = Color("e4d194"); pattern = 2; scale = 5.0
 	m.set_shader_parameter("color_a", ca)
 	m.set_shader_parameter("color_b", cb)
 	m.set_shader_parameter("noise_scale", scale)
@@ -248,7 +250,7 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	# rim kept low so the board doesn't read overly bright/contrasty.
 	m.set_shader_parameter("edge_darken", 0.14)
 	m.set_shader_parameter("rim_strength", 0.03)
-	m.set_shader_parameter("bump_strength", 0.4)
+	m.set_shader_parameter("bump_strength", 0.3)
 	_mat_cache[key] = m
 	return m
 
@@ -640,31 +642,67 @@ func _make_token(number: int) -> Node3D:
 	return root
 
 ## ===========================================================================
-##  Low-poly cartoon props. Arranged in a RING around the number token so the
-##  digits at the tile center stay clearly readable, and capped well inside
-##  the vertex circle (settlement markers sit out at radius _r).
+##  Tile props — Kenney Nature Kit models (CC0, assets/models/) for the "Golf
+##  With Your Friends" cartoony low-poly look, plus procedural sheep/bricks.
+##  Arranged in a RING around the number token so the digits at the tile
+##  center stay clearly readable, and capped well inside the vertex circle
+##  (settlement markers sit out at radius _r).
 ## ===========================================================================
+const MODEL_DIR := "res://assets/models/"
+
+var _model_cache := {}
+
+func _model(name_: String) -> PackedScene:
+	if not _model_cache.has(name_):
+		_model_cache[name_] = load(MODEL_DIR + name_ + ".glb")
+	return _model_cache[name_]
+
+func _spawn_model(tile: Node3D, name_: String, pos: Vector3, scale_f: float, yaw: float) -> void:
+	var scene := _model(name_)
+	if scene == null:
+		return
+	var inst: Node3D = scene.instantiate()
+	inst.position = pos
+	inst.scale = Vector3.ONE * scale_f
+	inst.rotation.y = yaw
+	tile.add_child(inst)
+
 func _scatter_props(tile: MeshInstance3D, res: int, seed_val: int) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_val
 	match res:
 		Consts.Res.WOOD:
+			var kinds := ["tree_default", "tree_pineRoundA", "tree_detailed", "tree_pineRoundA", "tree_default"]
+			var i := 0
 			for pos in _prop_ring(rng, 5):
-				tile.add_child(_make_tree(pos, rng.randf_range(0.85, 1.2)))
+				_spawn_model(tile, kinds[i % kinds.size()], pos,
+					_r * rng.randf_range(0.40, 0.50), rng.randf_range(0.0, TAU))
+				i += 1
 		Consts.Res.BRICK:
 			for pos in _prop_ring(rng, 2, 0.42, 0.5):
 				_make_brick_pile(tile, pos, rng)
 		Consts.Res.SHEEP:
 			for pos in _prop_ring(rng, 2, 0.42, 0.52):
 				tile.add_child(_make_sheep(pos, rng))
+			for pos in _prop_ring(rng, 3, 0.55, 0.62):
+				_spawn_model(tile, "grass_large", pos,
+					_r * rng.randf_range(0.30, 0.40), rng.randf_range(0.0, TAU))
 		Consts.Res.WHEAT:
-			for pos in _prop_ring(rng, 8):
-				tile.add_child(_make_wheat_stalk(pos, rng))
+			for pos in _prop_ring(rng, 6, 0.44, 0.58):
+				_spawn_model(tile, "crops_wheatStageB", pos,
+					_r * rng.randf_range(0.34, 0.42), rng.randf_range(0.0, TAU))
 		Consts.Res.ORE:
+			var rocks := ["rock_largeA", "rock_largeB", "rock_smallA"]
+			var j := 0
 			for pos in _prop_ring(rng, 3):
-				tile.add_child(_make_ore_rock(pos, rng))
+				_spawn_model(tile, rocks[j % rocks.size()], pos,
+					_r * rng.randf_range(0.42, 0.55), rng.randf_range(0.0, TAU))
+				j += 1
 		_:
-			pass  # desert: bare sand, no props
+			# Desert: a lone cactus and a flat stone so it reads arid, not empty.
+			var ring := _prop_ring(rng, 2, 0.45, 0.55)
+			_spawn_model(tile, "cactus_short", ring[0], _r * 0.42, rng.randf_range(0.0, TAU))
+			_spawn_model(tile, "rock_smallFlatA", ring[1], _r * 0.45, rng.randf_range(0.0, TAU))
 
 ## Evenly spaced ring positions (with jitter) between r_min.._r*r_max — outside
 ## the token disc (0.38 _r), inside the settlement corners (1.0 _r).
@@ -676,41 +714,6 @@ func _prop_ring(rng: RandomNumberGenerator, count: int, r_min := 0.46, r_max := 
 		var dist := rng.randf_range(r_min, r_max) * _r
 		out.append(Vector3(cos(ang) * dist, TILE_HEIGHT, sin(ang) * dist))
 	return out
-
-func _make_tree(pos: Vector3, s: float) -> Node3D:
-	var root := Node3D.new()
-	root.position = pos
-	var trunk := MeshInstance3D.new()
-	var tcyl := CylinderMesh.new()
-	tcyl.top_radius = _r * 0.035 * s
-	tcyl.bottom_radius = _r * 0.045 * s
-	tcyl.height = _r * 0.16 * s
-	trunk.mesh = tcyl
-	trunk.material_override = _plastic(Color("6b4226"))
-	trunk.position = Vector3(0, _r * 0.08 * s, 0)
-	root.add_child(trunk)
-	# Two stacked cones for a fuller stylized pine.
-	var lower := MeshInstance3D.new()
-	var cone1 := CylinderMesh.new()
-	cone1.top_radius = 0.0
-	cone1.bottom_radius = _r * 0.16 * s
-	cone1.height = _r * 0.26 * s
-	cone1.radial_segments = 8   # faceted low-poly look
-	lower.mesh = cone1
-	lower.material_override = _plastic(Color("2c8a3d"))
-	lower.position = Vector3(0, _r * (0.16 + 0.13) * s, 0)
-	root.add_child(lower)
-	var upper := MeshInstance3D.new()
-	var cone2 := CylinderMesh.new()
-	cone2.top_radius = 0.0
-	cone2.bottom_radius = _r * 0.11 * s
-	cone2.height = _r * 0.20 * s
-	cone2.radial_segments = 8
-	upper.mesh = cone2
-	upper.material_override = _plastic(Color("3aa04c"))
-	upper.position = Vector3(0, _r * (0.16 + 0.26 + 0.05) * s, 0)
-	root.add_child(upper)
-	return root
 
 func _make_brick_pile(tile: MeshInstance3D, base: Vector3, rng: RandomNumberGenerator) -> void:
 	var mat := _plastic(Color("a83226"))
@@ -737,6 +740,7 @@ func _make_sheep(pos: Vector3, rng: RandomNumberGenerator) -> Node3D:
 	var root := Node3D.new()
 	root.position = pos
 	root.rotation.y = rng.randf_range(0.0, TAU)
+	root.scale = Vector3.ONE * 1.3
 	var body := MeshInstance3D.new()
 	var cap := CapsuleMesh.new()
 	cap.radius = _r * 0.12
@@ -767,41 +771,6 @@ func _make_sheep(pos: Vector3, rng: RandomNumberGenerator) -> Node3D:
 			leg.position = Vector3(_r * lx, _r * 0.035, _r * lz)
 			root.add_child(leg)
 	return root
-
-func _make_wheat_stalk(pos: Vector3, rng: RandomNumberGenerator) -> Node3D:
-	var root := Node3D.new()
-	root.position = pos
-	root.rotation.z = rng.randf_range(-0.12, 0.12)
-	var stalk := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = _r * 0.016
-	cyl.bottom_radius = _r * 0.024
-	cyl.height = _r * 0.30
-	stalk.mesh = cyl
-	stalk.material_override = _plastic(Color("d9a82f"))
-	stalk.position = Vector3(0, _r * 0.15, 0)
-	root.add_child(stalk)
-	# Grain head: small bright capsule on top.
-	var grain := MeshInstance3D.new()
-	var cap := CapsuleMesh.new()
-	cap.radius = _r * 0.028
-	cap.height = _r * 0.10
-	grain.mesh = cap
-	grain.material_override = _plastic(Color("f2c94c"))
-	grain.position = Vector3(0, _r * 0.33, 0)
-	root.add_child(grain)
-	return root
-
-func _make_ore_rock(pos: Vector3, rng: RandomNumberGenerator) -> MeshInstance3D:
-	var m := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	var s := _r * rng.randf_range(0.13, 0.19)
-	box.size = Vector3(s, s * rng.randf_range(0.7, 1.0), s * rng.randf_range(0.8, 1.1))
-	m.mesh = box
-	m.material_override = _plastic(Color("484b50"))
-	m.position = pos + Vector3(0, box.size.y * 0.45, 0)
-	m.rotation = Vector3(rng.randf_range(-0.25, 0.25), rng.randf_range(0.0, TAU), rng.randf_range(-0.25, 0.25))
-	return m
 
 func _make_marker(pos: Vector3, color: Color = Color(1, 1, 1)) -> MeshInstance3D:
 	var m := MeshInstance3D.new()
