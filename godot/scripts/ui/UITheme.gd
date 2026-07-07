@@ -27,9 +27,11 @@ static func card_style(bg: Color = PANEL, radius: int = 12) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.set_corner_radius_all(radius)
-	sb.shadow_color = Color(0, 0, 0, 0.28)
-	sb.shadow_size = 7
-	sb.shadow_offset = Vector2(0, 3)
+	sb.shadow_color = Color(0, 0, 0, 0.16)
+	sb.shadow_size = 10
+	sb.shadow_offset = Vector2(0, 4)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(0, 0, 0, 0.07)
 	sb.content_margin_left = 12
 	sb.content_margin_right = 12
 	sb.content_margin_top = 10

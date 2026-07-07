@@ -227,10 +227,10 @@ func _terrain_material(res: int) -> ShaderMaterial:
 			ca = Color("1e7a3a"); cb = Color("4cb057"); pattern = 0; scale = 7.0
 		Consts.Res.SHEEP:       # fresh lime pasture
 			ca = Color("8cc63e"); cb = Color("bbe273"); pattern = 0; scale = 6.0
-		Consts.Res.WHEAT:       # rich golden field
-			ca = Color("e8a91c"); cb = Color("ffd344"); pattern = 0; scale = 8.0
-		Consts.Res.BRICK:       # warm clay orange
-			ca = Color("d5652c"); cb = Color("f79552"); pattern = 1; scale = 6.0
+		Consts.Res.WHEAT:       # rich golden field with crop furrows
+			ca = Color("e8a91c"); cb = Color("ffd344"); pattern = 4; scale = 8.0
+		Consts.Res.BRICK:       # warm clay with brick-course texture
+			ca = Color("b34f22"); cb = Color("f4a06a"); pattern = 3; scale = 6.0
 		Consts.Res.ORE:         # cool slate with a gleam
 			ca = Color("75828f"); cb = Color("b4bfca"); pattern = 1; scale = 6.0
 			rough_a = 0.42; rough_b = 0.30; metallic = 0.30
@@ -244,9 +244,11 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	m.set_shader_parameter("rough_b", rough_b)
 	m.set_shader_parameter("metallic_amt", metallic)
 	m.set_shader_parameter("hex_radius", _r)
-	# SSAO now does the deep crevice shadows, so ease off the in-shader darken.
-	m.set_shader_parameter("edge_darken", 0.16)
-	m.set_shader_parameter("rim_strength", 0.14)
+	# SSAO now does the deep crevice shadows, so ease off the in-shader darken;
+	# rim kept low so the board doesn't read overly bright/contrasty.
+	m.set_shader_parameter("edge_darken", 0.14)
+	m.set_shader_parameter("rim_strength", 0.07)
+	m.set_shader_parameter("bump_strength", 0.4)
 	_mat_cache[key] = m
 	return m
 
@@ -603,25 +605,38 @@ func _make_token(number: int) -> Node3D:
 	var root := Node3D.new()
 	var disc := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = _r * 0.34
-	cyl.bottom_radius = _r * 0.34
+	cyl.top_radius = _r * 0.38
+	cyl.bottom_radius = _r * 0.38
 	cyl.height = _r * 0.12
 	cyl.radial_segments = 24
 	disc.mesh = cyl
 	disc.material_override = _plastic(Color("f7f3e6"))
 	root.add_child(disc)
+	var hot := number == 6 or number == 8
+	var ink := Color("c0392b") if hot else Color("2c3e50")
 	var lbl := Label3D.new()
 	lbl.text = str(number)
-	lbl.font_size = 110
+	lbl.font_size = 76
 	lbl.pixel_size = _r * 0.006
 	# Stamped flat onto the disc, not billboarded — lay the glyph plane down
 	# into the X-Z plane (normal facing +Y) so it never rotates to face the
 	# camera and instead reads like it's printed on the token.
 	lbl.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 	lbl.rotation_degrees = Vector3(-90, 0, 0)
-	lbl.modulate = Color("c0392b") if (number == 6 or number == 8) else Color("2c3e50")
-	lbl.position = Vector3(0, cyl.height * 0.5 + 0.005, 0)
+	lbl.modulate = ink
+	lbl.position = Vector3(0, cyl.height * 0.5 + 0.006, -_r * 0.06)
 	root.add_child(lbl)
+	# Catan-style probability pips under the number (more pips = more likely),
+	# kept clear of the digits so wide numbers like 10/11/12 stay readable.
+	var pips := Label3D.new()
+	pips.text = "•".repeat(6 - abs(7 - number))
+	pips.font_size = 40
+	pips.pixel_size = _r * 0.0035
+	pips.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	pips.rotation_degrees = Vector3(-90, 0, 0)
+	pips.modulate = ink
+	pips.position = Vector3(0, cyl.height * 0.5 + 0.005, _r * 0.22)
+	root.add_child(pips)
 	return root
 
 ## ===========================================================================

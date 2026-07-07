@@ -82,20 +82,21 @@ func _setup_environment() -> void:
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0.05, 0.28, 0.48)
 
-	# Controlled ambient fill: lifts shadows so they aren't pitch black,
-	# without washing out the highlights.
+	# Generous ambient fill: shaded faces stay readable, and because the key
+	# light is dimmer overall the scene reads soft rather than harsh.
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.58, 0.70, 0.84)
-	env.ambient_light_energy = 0.45
+	env.ambient_light_color = Color(0.62, 0.72, 0.84)
+	env.ambient_light_energy = 0.60
 
-	# High-end color grading: ACES + a saturation/contrast pop so the cartoon
-	# colors read crisp and vibrant (no washed-out look).
+	# Gentle color grading: ACES with a slight saturation lift only. Exposure
+	# and contrast are kept low-key — the board should feel bright-but-soft,
+	# never blown out or high-contrast.
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 0.95
+	env.tonemap_exposure = 0.85
 	env.tonemap_white = 1.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.15
-	env.adjustment_contrast = 1.08
+	env.adjustment_saturation = 1.08
+	env.adjustment_contrast = 1.0
 	env.adjustment_brightness = 1.0
 
 	# SSAO + glow need Forward+/Mobile (a RenderingDevice); guarded so the GL
@@ -103,10 +104,10 @@ func _setup_environment() -> void:
 	# hex tiles get deep, rich contact shadows (the key "physical board" look).
 	if RenderingServer.get_rendering_device() != null:
 		env.ssao_enabled = true
-		env.ssao_radius = 1.5
-		env.ssao_intensity = 4.0
-		env.ssao_power = 2.0
-		env.ssao_detail = 1.0
+		env.ssao_radius = 1.2
+		env.ssao_intensity = 2.2
+		env.ssao_power = 1.5
+		env.ssao_detail = 0.6
 		env.ssao_horizon = 0.06
 		# Subtle bloom so emissive holograms / rim highlights bleed nicely.
 		env.glow_enabled = true
@@ -121,14 +122,15 @@ func _setup_light() -> void:
 	# Key light — LOW-angle warm sun (Pummel Party look) for long, dramatic
 	# shadows raked across the tiles. Warm cream, bright but not overexposed.
 	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-27, -55, 0)   # low sun -> long shadows
-	sun.light_energy = 1.15
-	sun.light_color = Color(1.0, 0.94, 0.80)      # warm cream / soft gold
+	sun.rotation_degrees = Vector3(-32, -55, 0)   # low-ish sun -> long shadows
+	sun.light_energy = 0.85                       # dimmer key = softer contrast
+	sun.light_color = Color(1.0, 0.95, 0.84)      # warm cream / soft gold
 	sun.shadow_enabled = true
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	sun.light_angular_distance = 0.6   # small => distinct, geometric shadow edges
-	sun.shadow_blur = 1.0
+	sun.light_angular_distance = 2.0   # wider => gentle, soft shadow edges
+	sun.shadow_blur = 1.6
 	sun.shadow_bias = 0.04
+	sun.shadow_opacity = 0.8           # shadows stay airy, never inky
 	sun.directional_shadow_max_distance = 60.0
 	add_child(sun)
 
@@ -136,7 +138,7 @@ func _setup_light() -> void:
 	# SSAO can do the deep crevice work instead.
 	var fill := DirectionalLight3D.new()
 	fill.rotation_degrees = Vector3(-30, 120, 0)
-	fill.light_energy = 0.22
-	fill.light_color = Color(0.80, 0.88, 1.0)
+	fill.light_energy = 0.30
+	fill.light_color = Color(0.82, 0.89, 1.0)
 	fill.shadow_enabled = false
 	add_child(fill)

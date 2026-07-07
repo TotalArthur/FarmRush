@@ -6,11 +6,10 @@ extends Control
 ## Layout (all built in code; equivalent editor node tree is in the README):
 ##   GameScreen (Control, full rect, mouse IGNORE so clicks reach the board)
 ##   ├─ TopBanner (PanelContainer, top-center)         -> prompt / whose turn
-##   ├─ RightHub (PanelContainer, right dock)
-##   │    └─ VBox
-##   │         ├─ "Game Log" + RichTextLabel (scrolls)
-##   │         └─ "Players" + ScrollContainer -> player rows
-##   ├─ ActionHub (PanelContainer, bottom dock)
+##   ├─ PlayersCard (PanelContainer, top-right, compact) -> player rows
+##   ├─ LogButton (Button, bottom-right)  -> toggles the LogPanel popup
+##   ├─ LogPanel (PanelContainer, hidden) -> "Game Log" + RichTextLabel
+##   ├─ ActionHub (PanelContainer, bottom dock, full width)
 ##   │    └─ VBox
 ##   │         ├─ Hand row (resource chips)
 ##   │         └─ Buttons row (Roll / End / Road / Settlement / City / Card / Trade)
@@ -38,6 +37,8 @@ var trade_btn: Button
 var end_btn: Button
 
 var _overlay: Control
+var _log_panel: PanelContainer
+var _log_btn: Button
 var _free_road_mode := false
 
 func _ready() -> void:
@@ -68,7 +69,7 @@ func _build_ui() -> void:
 		board.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		board.offset_top = 64
 		board.offset_bottom = -160
-		board.offset_right = -348
+		board.offset_right = -12
 		add_child(board)
 
 	_build_top_banner()
@@ -110,24 +111,39 @@ func _build_top_banner() -> void:
 	row.add_child(prompt_label)
 
 func _build_right_hub() -> void:
+	# Compact players card, top-right — sized to content, board visible below.
 	var panel := UITheme.make_panel(UITheme.PANEL, 14)
 	panel.anchor_left = 1.0
 	panel.anchor_right = 1.0
-	panel.anchor_top = 0.0
-	panel.anchor_bottom = 1.0
-	panel.offset_left = -336
+	panel.offset_left = -312
 	panel.offset_right = -12
 	panel.offset_top = 12
-	panel.offset_bottom = -12
 	add_child(panel)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
+	vb.add_theme_constant_override("separation", 6)
 	panel.add_child(vb)
+	players_bar = VBoxContainer.new()
+	players_bar.add_theme_constant_override("separation", 6)
+	players_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_child(players_bar)
 
-	vb.add_child(UITheme.heading("Game Log", 18))
-	var log_panel := UITheme.make_panel(UITheme.PANEL_SOFT, 10)
-	log_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vb.add_child(log_panel)
+	# Game log lives in a popup panel, toggled by a small button (bottom-right)
+	# so it never eats board space unless the player asks for it.
+	_log_panel = UITheme.make_panel(UITheme.PANEL, 14)
+	_log_panel.anchor_left = 1.0
+	_log_panel.anchor_right = 1.0
+	_log_panel.anchor_top = 1.0
+	_log_panel.anchor_bottom = 1.0
+	_log_panel.offset_left = -392
+	_log_panel.offset_right = -12
+	_log_panel.offset_top = -470
+	_log_panel.offset_bottom = -216
+	_log_panel.visible = false
+	add_child(_log_panel)
+	var lv := VBoxContainer.new()
+	lv.add_theme_constant_override("separation", 6)
+	_log_panel.add_child(lv)
+	lv.add_child(UITheme.heading("Game Log", 16))
 	log_label = RichTextLabel.new()
 	log_label.bbcode_enabled = true
 	log_label.scroll_active = true
@@ -135,17 +151,21 @@ func _build_right_hub() -> void:
 	log_label.fit_content = false
 	log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	log_label.add_theme_color_override("default_color", UITheme.INK)
-	log_panel.add_child(log_label)
+	log_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	lv.add_child(log_label)
 
-	vb.add_child(UITheme.heading("Players", 18))
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vb.add_child(scroll)
-	players_bar = VBoxContainer.new()
-	players_bar.add_theme_constant_override("separation", 6)
-	players_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(players_bar)
+	_log_btn = UITheme.make_button("Log", UITheme.SLATE)
+	_log_btn.anchor_left = 1.0
+	_log_btn.anchor_right = 1.0
+	_log_btn.anchor_top = 1.0
+	_log_btn.anchor_bottom = 1.0
+	_log_btn.offset_left = -92
+	_log_btn.offset_right = -12
+	_log_btn.offset_top = -208
+	_log_btn.offset_bottom = -166
+	_log_btn.toggle_mode = true
+	_log_btn.toggled.connect(func(on: bool): _log_panel.visible = on)
+	add_child(_log_btn)
 
 func _build_action_hub() -> void:
 	var panel := UITheme.make_panel(UITheme.PANEL, 14)
@@ -154,7 +174,7 @@ func _build_action_hub() -> void:
 	panel.anchor_left = 0.0
 	panel.anchor_right = 1.0
 	panel.offset_left = 12
-	panel.offset_right = -348
+	panel.offset_right = -12
 	panel.offset_top = -148
 	panel.offset_bottom = -12
 	add_child(panel)

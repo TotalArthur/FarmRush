@@ -44,7 +44,13 @@ void fragment() {
 	float t = TIME * wave_speed * 0.4;
 	float n = vnoise(v_world * 0.10 + vec2(t, 0.0));
 	vec3 col = mix(deep_color, shallow_color, smoothstep(0.35, 0.7, n) * 0.55);
+	// Very sparse drifting sun-glints — only where two independent noise
+	// fields peak together, so the surface stays calm with a rare twinkle.
+	float g1 = vnoise(v_world * 1.4 + vec2(t * 2.0, -t * 1.5));
+	float g2 = vnoise(v_world * 1.7 - vec2(t * 1.6, t * 1.9));
+	float glint = smoothstep(0.86, 0.985, g1 * g2 * 1.05);
+	col += vec3(0.40, 0.48, 0.52) * glint * 0.30;
 	ALBEDO = col;
-	ROUGHNESS = 0.7;
+	ROUGHNESS = 0.7 - glint * 0.2;
 	METALLIC = 0.0;
 }

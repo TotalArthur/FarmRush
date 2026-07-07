@@ -16,13 +16,17 @@ and chunky colored buttons:
 
 - **Start screen** (`MainMenu`): left nav sidebar, **Bots / Casual / Ranked**
   tabs, a styled mode card (difficulty + opponent count), and a big Start button.
-- **In-game HUD** (`GameScreen`, a transparent `CanvasLayer` overlay):
+- **In-game HUD** (`GameScreen`, a transparent `CanvasLayer` overlay), kept
+  minimal so the 3D board owns the screen:
   - **Top banner** — current player + prompt.
-  - **Right hub** — a scrolling **Game Log** over a **Players** list (color,
-    name, VP, resource/dev-card counts, knights, Longest Road / Largest Army).
-  - **Bottom action hub** — the active hand as resource chips plus chunky
-    **Roll / Road / Settlement / City / Buy Card / Play Card / Trade / End Turn**
-    buttons that enable only when the action is legal/affordable.
+  - **Players card** — a compact top-right card (color, name, VP,
+    resource/dev-card counts, knights, Longest Road / Largest Army).
+  - **Log button** — the game log is tucked behind a bottom-right **Log**
+    toggle button; it pops up as a panel only when you want it.
+  - **Bottom action hub** (full width) — the active hand as resource chips
+    plus chunky **Roll / Road / Settlement / City / Buy Card / Play Card /
+    Trade / End Turn** buttons that enable only when the action is
+    legal/affordable.
 
 ### Editor node tree for the HUD
 
@@ -32,13 +36,12 @@ The HUD is built in code, but the equivalent scene tree is:
 GameScreen (Control, anchors Full Rect, mouse_filter = Ignore)
 ├─ TopBanner (PanelContainer, top-center)        # StyleBoxFlat: white, radius 14
 │   └─ HBox → [ColorRect swatch] [prompt Label]
-├─ RightHub (PanelContainer, right dock 336px)
-│   └─ VBox
-│        ├─ Label "Game Log"
-│        ├─ PanelContainer (soft)  → RichTextLabel (scrolls, expand)
-│        ├─ Label "Players"
-│        └─ ScrollContainer (expand) → VBox (one PanelContainer row per player)
-├─ ActionHub (PanelContainer, bottom dock, right offset 348px)
+├─ PlayersCard (PanelContainer, top-right 300px, content-sized)
+│   └─ VBox (one PanelContainer row per player)
+├─ LogButton (Button "Log", bottom-right, toggle)
+├─ LogPanel (PanelContainer, hidden until toggled)
+│   └─ VBox → [Label "Game Log"] [RichTextLabel (scrolls)]
+├─ ActionHub (PanelContainer, bottom dock, full width)
 │   └─ VBox
 │        ├─ HBox (Hand)    → [Label "Hand:"] [resource chips ×5]
 │        └─ HBox (Actions) → [Dice Label] [chunky Buttons ×8]
@@ -52,10 +55,11 @@ The board is a 3D scene (`Game3DWorld`) and is the **default** in-game view:
 - **Beveled, two-layer hex tiles** (dirt/stone base + colored top) generated
   from the engine's axial coordinates, with slightly randomized top vertices so
   the terrain isn't perfectly flat.
-- **Procedural terrain shaders** (`shaders/terrain.gdshader`) — noise-blended
-  grass/forest/field, rocky ore/brick, and wavy desert dunes (no textures),
-  in a **colonist.io-matched palette**: deep forest green, lime pasture,
-  golden wheat, clay-orange brick, and cool slate ore.
+- **Procedural "textures"** (`shaders/terrain.gdshader`) — every tile type has
+  its own material pattern with emboss relief shading: patchy grass with blade
+  stipple, running-bond **brick courses with mortar**, wind-bent **wheat
+  furrows**, speckled rock, and grainy dunes — all noise-based, no image
+  files, in a **colonist.io-matched palette**.
 - **Sand frame** — a ring of low tan hexes hugs the island (the 3D take on
   colonist.io's tan board border), with the calm blue ocean beyond it.
 - **Animated water shader** (`shaders/water.gdshader`) — TIME-driven wave
@@ -68,8 +72,8 @@ The board is a 3D scene (`Game3DWorld`) and is the **default** in-game view:
 - **Juicy feedback**: hexes lift on hover (Tween), settlements/roads/cities
   *pop in* with an elastic overshoot, and a translucent glowing **hologram**
   previews your placement under the cursor.
-- **Stamped number tokens** — cream discs lying flat on each tile, colonist
-  style (red 6/8).
+- **Stamped number tokens** — cream discs lying flat on each tile with
+  Catan-style probability pips, colonist style (red 6/8).
 - **3D physics dice** (`scripts/dice/`) that can be physically thrown and read
   by their resting top face.
 
