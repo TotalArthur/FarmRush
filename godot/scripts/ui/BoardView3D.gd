@@ -62,11 +62,13 @@ var _ready_for_fx := false       # suppress placement bursts during initial buil
 var _mat_cache := {}
 var _terrain_shader: Shader
 var _water_shader: Shader
+var _roof_shader: Shader
 var _hex_mesh: ArrayMesh
 
 func _ready() -> void:
 	_terrain_shader = load("res://shaders/terrain.gdshader")
 	_water_shader = load("res://shaders/water.gdshader")
+	_roof_shader = load("res://shaders/roof.gdshader")
 	_highlights = Node3D.new()
 	add_child(_highlights)
 	if Game.state != null:
@@ -194,6 +196,49 @@ func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, n: Vector3) -> vo
 # ===========================================================================
 #  Materials
 # ===========================================================================
+# Neutral building palette. Player colour is NEVER a full-mesh tint — it
+# lives only in the accent elements (banner flag / road stripe), so the
+# buildings keep their material identity and ownership reads as a deliberate
+# team-colour mark instead of a toy recolour.
+const WALL_COL := Color("e8dcc2")     # warm plaster
+const TIMBER_COL := Color("7a5b40")   # dark wood (doors, poles, planks)
+const STONE_COL := Color("b7b1a4")    # stone base / chimneys
+const WINDOW_COL := Color("f7f0dd")   # bright shutter/window inset
+
+## Player-accent material: proper PBR (satin roughness, hint of metal) plus
+## an emission boost when a RenderingDevice exists, so Forward+ bloom makes
+## the team colour pop at camera distance. On GL it stays a clean satin tint.
+func _accent(color: Color) -> StandardMaterial3D:
+	var key := "a_" + color.to_html()
+	if _mat_cache.has(key):
+		return _mat_cache[key]
+	var m := StandardMaterial3D.new()
+	m.albedo_color = color
+	m.roughness = 0.35
+	m.metallic = 0.05
+	if RenderingServer.get_rendering_device() != null:
+		m.emission_enabled = true
+		m.emission = color
+		m.emission_energy_multiplier = 0.55
+	_mat_cache[key] = m
+	return m
+
+## Player-coloured roof: THE primary ownership signal (roofs are the most
+## visible surface at distance). shaders/roof.gdshader adds shingle courses
+## and roughness breakup so it reads as a tiled surface, not a flat tint;
+## the emission uniform carries the Forward+ bloom boost and stays 0 on GL.
+func _roof_mat(color: Color) -> ShaderMaterial:
+	var key := "r_" + color.to_html()
+	if _mat_cache.has(key):
+		return _mat_cache[key]
+	var m := ShaderMaterial.new()
+	m.shader = _roof_shader
+	m.set_shader_parameter("base_color", color)
+	m.set_shader_parameter("emission_strength",
+		0.40 if RenderingServer.get_rendering_device() != null else 0.0)
+	_mat_cache[key] = m
+	return m
+
 func _plastic(color: Color) -> StandardMaterial3D:
 	var key := "p_" + color.to_html()
 	if _mat_cache.has(key):
@@ -341,7 +386,9 @@ func _sync_pieces() -> void:
 		var b: Dictionary = s.buildings[v]
 		var col: Color = s.players[b["owner"]].color
 		if not _settle_nodes.has(v):
-			var node := _make_city(col) if b["city"] else _make_settlement(col)
+			# Vertex id seeds the roof variant, so the set varies but every
+			# client renders the identical board.
+			var node := _make_city(col, v) if b["city"] else _make_settlement(col, v)
 			node.position = _vertex_world[v]
 			add_child(node)
 			_settle_nodes[v] = { "node": node, "city": b["city"] }
@@ -350,7 +397,7 @@ func _sync_pieces() -> void:
 				func(): if _ready_for_fx: _burst(fpos + Vector3(0, _r * 0.4, 0), col))
 		elif _settle_nodes[v]["city"] != b["city"]:
 			_settle_nodes[v]["node"].queue_free()
-			var node2 := _make_city(col)
+			var node2 := _make_city(col, v)
 			node2.position = _vertex_world[v]
 			add_child(node2)
 			_settle_nodes[v] = { "node": node2, "city": true }
@@ -841,51 +888,121 @@ func _make_edge_marker(a: Vector3, b: Vector3) -> MeshInstance3D:
 	m.rotation.y = atan2(b.x - a.x, b.z - a.z)
 	return m
 
-func _make_settlement(color: Color) -> Node3D:
+## Small axis-aligned box part (all building details are box parts so the
+## ghost-hologram pass can restyle every direct MeshInstance3D child).
+func _box_part(size: Vector3, mat: Material, pos: Vector3) -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	m.mesh = bm
+	m.material_override = mat
+	m.position = pos
+	return m
+
+## Player banner: dark pole + team-colour pennant planted at a roof peak.
+## This is THE ownership marker on buildings.
+func _add_banner(root: Node3D, color: Color, base_y: float) -> void:
+	var s := _r
+	var pole := MeshInstance3D.new()
+	var pc := CylinderMesh.new()
+	pc.top_radius = 0.013 * s
+	pc.bottom_radius = 0.013 * s
+	pc.height = 0.24 * s
+	pc.radial_segments = 8
+	pole.mesh = pc
+	pole.material_override = _plastic(TIMBER_COL)
+	pole.position = Vector3(0, base_y + 0.12 * s, 0)
+	root.add_child(pole)
+	root.add_child(_box_part(Vector3(0.15, 0.09, 0.016) * s, _accent(color),
+		Vector3(0.085 * s, base_y + 0.185 * s, 0)))
+
+## Settlement: a small cottage with a real silhouette — plaster walls, timber
+## door, window, chimney, and a roof that varies (shape + colour) by variant
+## so the board never reads as repeated identical props.
+func _make_settlement(color: Color, variant: int = 0) -> Node3D:
 	var root := Node3D.new()
-	var base := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(_r * 0.4, _r * 0.4, _r * 0.4)
-	base.mesh = box
-	base.material_override = _plastic(color)
-	base.position = Vector3(0, _r * 0.2, 0)
-	root.add_child(base)
+	var s := _r
+	# Walls + timber door (slightly proud of the face) + window shutter.
+	root.add_child(_box_part(Vector3(0.42, 0.30, 0.36) * s, _plastic(WALL_COL), Vector3(0, 0.15, 0) * s))
+	root.add_child(_box_part(Vector3(0.10, 0.17, 0.02) * s, _plastic(TIMBER_COL), Vector3(0.07, 0.085, 0.185) * s))
+	root.add_child(_box_part(Vector3(0.09, 0.09, 0.02) * s, _plastic(WINDOW_COL), Vector3(-0.10, 0.19, 0.185) * s))
+	# Roof: three silhouettes — steep gable, turned gable, long low saltbox.
 	var roof := MeshInstance3D.new()
 	var prism := PrismMesh.new()
-	prism.size = Vector3(_r * 0.46, _r * 0.28, _r * 0.46)
+	var rh: float
+	match variant % 3:
+		0:
+			prism.size = Vector3(0.50, 0.22, 0.44) * s
+			rh = 0.22
+		1:
+			prism.size = Vector3(0.44, 0.27, 0.50) * s
+			roof.rotation.y = PI * 0.5
+			rh = 0.27
+		_:
+			prism.size = Vector3(0.54, 0.16, 0.46) * s
+			rh = 0.16
 	roof.mesh = prism
-	roof.material_override = _plastic(color.lightened(0.15))
-	roof.position = Vector3(0, _r * 0.54, 0)
+	roof.material_override = _roof_mat(color)   # roof = primary ownership signal
+	roof.position = Vector3(0, (0.30 + rh * 0.5) * s, 0)
 	root.add_child(roof)
+	# Stone chimney poking through one roof slope.
+	root.add_child(_box_part(Vector3(0.07, 0.18, 0.07) * s, _plastic(STONE_COL),
+		Vector3(-0.13, 0.30 + rh * 0.55, -0.08) * s))
+	_add_banner(root, color, (0.30 + rh) * s)
 	return root
 
-func _make_city(color: Color) -> Node3D:
+## City: reads as "upgraded" at a glance — wider two-mass footprint on a
+## stone plinth, a second story, a tall tower with a pyramid cap, and more
+## window detail. Same part vocabulary as the settlement, bigger volume.
+func _make_city(color: Color, variant: int = 0) -> Node3D:
 	var root := Node3D.new()
-	var base := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(_r * 0.6, _r * 0.4, _r * 0.45)
-	base.mesh = box
-	base.material_override = _plastic(color)
-	base.position = Vector3(0, _r * 0.2, 0)
-	root.add_child(base)
-	var tower := MeshInstance3D.new()
-	var box2 := BoxMesh.new()
-	box2.size = Vector3(_r * 0.32, _r * 0.55, _r * 0.32)
-	tower.mesh = box2
-	tower.material_override = _plastic(color.lightened(0.1))
-	tower.position = Vector3(_r * 0.18, _r * 0.5, 0)
-	root.add_child(tower)
+	var s := _r
+	# Main hall: stone plinth + plaster upper story.
+	root.add_child(_box_part(Vector3(0.62, 0.16, 0.42) * s, _plastic(STONE_COL), Vector3(0, 0.08, 0) * s))
+	root.add_child(_box_part(Vector3(0.58, 0.24, 0.38) * s, _plastic(WALL_COL), Vector3(0, 0.28, 0) * s))
+	var roof := MeshInstance3D.new()
+	var prism := PrismMesh.new()
+	prism.size = Vector3(0.64, 0.20, 0.44) * s
+	roof.mesh = prism
+	roof.material_override = _roof_mat(color)   # roof = primary ownership signal
+	roof.position = Vector3(-0.04, 0.50, 0) * s
+	root.add_child(roof)
+	# Door + two hall windows.
+	root.add_child(_box_part(Vector3(0.11, 0.18, 0.02) * s, _plastic(TIMBER_COL), Vector3(-0.12, 0.09, 0.215) * s))
+	root.add_child(_box_part(Vector3(0.09, 0.09, 0.02) * s, _plastic(WINDOW_COL), Vector3(-0.20, 0.30, 0.20) * s))
+	root.add_child(_box_part(Vector3(0.09, 0.09, 0.02) * s, _plastic(WINDOW_COL), Vector3(0.00, 0.30, 0.20) * s))
+	# Watchtower mass with a 4-sided pyramid cap.
+	root.add_child(_box_part(Vector3(0.24, 0.56, 0.24) * s, _plastic(WALL_COL), Vector3(0.23, 0.28, -0.04) * s))
+	var cap := MeshInstance3D.new()
+	var pyr := CylinderMesh.new()
+	pyr.top_radius = 0.0
+	pyr.bottom_radius = 0.19 * s
+	pyr.height = 0.18 * s
+	pyr.radial_segments = 4
+	cap.mesh = pyr
+	cap.material_override = _roof_mat(color)
+	cap.position = Vector3(0.23, 0.65, -0.04) * s
+	cap.rotation.y = PI * 0.25
+	root.add_child(cap)
+	# Tower window + stone chimney on the hall roof.
+	root.add_child(_box_part(Vector3(0.08, 0.10, 0.02) * s, _plastic(WINDOW_COL), Vector3(0.23, 0.44, 0.09) * s))
+	root.add_child(_box_part(Vector3(0.07, 0.18, 0.07) * s, _plastic(STONE_COL), Vector3(-0.22, 0.56, -0.09) * s))
+	# Banner on the tower peak — highest point, unmistakable from distance.
+	var banner_root := Node3D.new()
+	banner_root.position = Vector3(0.23 * s, 0, -0.04 * s)
+	root.add_child(banner_root)
+	_add_banner(banner_root, color, 0.74 * s)
 	return root
 
+## Road: neutral timber plank; ownership is an inset team-colour stripe along
+## the top (same accent material as the banners, so the language matches).
 func _make_road(color: Color, a: Vector3, b: Vector3) -> Node3D:
 	var root := Node3D.new()
-	var m := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(_r * 0.16, _r * 0.16, max(a.distance_to(b) * 0.8, 0.1))
-	m.mesh = box
-	m.material_override = _plastic(color)
-	m.position = Vector3(0, _r * 0.08, 0)
-	root.add_child(m)
+	var length := maxf(a.distance_to(b) * 0.8, 0.1)
+	root.add_child(_box_part(Vector3(_r * 0.16, _r * 0.11, length),
+		_plastic(TIMBER_COL), Vector3(0, _r * 0.055, 0)))
+	root.add_child(_box_part(Vector3(_r * 0.075, _r * 0.025, length * 0.92),
+		_accent(color), Vector3(0, _r * 0.115, 0)))
 	root.position = (a + b) * 0.5
 	root.rotation.y = atan2(b.x - a.x, b.z - a.z)
 	return root
@@ -903,10 +1020,19 @@ func _make_robber() -> Node3D:
 	return root
 
 func _make_ghost(node: Node3D) -> void:
+	# Recurse: buildings nest parts (e.g. the city banner) below sub-nodes.
 	for child in node.get_children():
 		if child is MeshInstance3D:
 			var src = child.material_override
-			var base_col: Color = src.albedo_color if src is StandardMaterial3D else Color.WHITE
+			var base_col := Color.WHITE
+			if src is StandardMaterial3D:
+				base_col = src.albedo_color
+			elif src is ShaderMaterial:
+				var p = src.get_shader_parameter("base_color")
+				if p is Color:
+					base_col = p
+				elif p is Vector3:
+					base_col = Color(p.x, p.y, p.z)
 			var mat := StandardMaterial3D.new()
 			mat.albedo_color = Color(base_col.r, base_col.g, base_col.b, 0.4)
 			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -914,3 +1040,5 @@ func _make_ghost(node: Node3D) -> void:
 			mat.emission = base_col.lightened(0.3)
 			mat.emission_energy_multiplier = 1.6
 			child.material_override = mat
+		if child is Node3D:
+			_make_ghost(child)

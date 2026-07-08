@@ -261,6 +261,21 @@ static func update_cost_button(b: Button, have: Dictionary) -> void:
 		e["lbl"].add_theme_color_override("font_color", INK_SOFT if enough else Color("c0392b"))
 	b.modulate.a = 0.55 if b.disabled else 1.0
 
+# Player identity icon -------------------------------------------------------
+## Lucide-style rounded user silhouette (white-on-transparent SVG) tinted to
+## the player's colour via modulate at runtime. Same shape for everyone —
+## identity reads by colour, not icon variety. Sized to the footprint of the
+## old 20x20 colour square so no HUD reflow is needed.
+static func player_icon(color: Color, size: int = 20) -> TextureRect:
+	var tr := TextureRect.new()
+	tr.texture = load("res://assets/icons/player.svg")
+	tr.custom_minimum_size = Vector2(size, size)
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tr.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tr.modulate = color
+	return tr
+
 # Hand card (a real card prop: colored face, icon chip, count) -------------
 static func hand_card(res: int, count: int) -> Control:
 	var col: Color = RES_VIVID[res]
