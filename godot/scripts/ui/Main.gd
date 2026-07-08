@@ -79,11 +79,8 @@ func show_lobby() -> void:
 	_swap(l)
 
 func show_game() -> void:
-	# 3D tabletop is the default. Set HEXBOUND_2D=1 to use the flat 2D board.
-	if OS.has_environment("HEXBOUND_2D"):
-		_swap(GameScreen.new())
-	else:
-		_swap(Game3DWorld.new())
+	# The 3D tabletop is the one and only in-game view.
+	_swap(Game3DWorld.new())
 
 func _on_play_single(ai_count: int) -> void:
 	Game.start_single("You", ai_count)

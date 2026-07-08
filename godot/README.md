@@ -8,21 +8,35 @@ digital tabletop** (Pummel Party / Mario Party vibe).
 ![board](docs/preview.png)
 ![menu](docs/menu.png)
 
-## Modern UI (colonist.io-style)
+## Modern UI
 
-The interface uses one shared style helper (`UITheme`) for a clean, modern
-browser-game feel — rounded white `StyleBoxFlat` panels with soft drop shadows
-and chunky colored buttons:
+The interface uses one shared style helper (`UITheme`). The menu keeps the
+warm ivory/charcoal look; the in-game HUD switches to **dark navy glass
+panels** (`hud_panel`, `#16212e` @ 93%) so every panel pops against the
+bright ocean without hiding the board. One **terracotta primary** carries
+the main action (Roll / End Turn / Start), quiet bordered secondary buttons
+handle the rest, and build buttons are **cost buttons** that show their
+exact price and fade when unaffordable.
+
+The HUD runs a small **state machine** (`GameScreen.UIPhase`:
+`WAITING / SETUP / ROLL / MAIN / ROBBER / DISCARD / OVER`) derived from the
+engine phase — each state shows exactly one clear next step (ROLL shows only
+the roll button; MAIN opens the build/trade set with live affordability;
+opponents' turns strip the cluster down to the dice readout).
 
 - **Start screen** (`MainMenu`): left nav sidebar, **Bots / Casual / Ranked**
   tabs, a styled mode card (difficulty + opponent count), and a big Start button.
-- **In-game HUD** (`GameScreen`, a transparent `CanvasLayer` overlay):
+- **In-game HUD** (`GameScreen`, a transparent `CanvasLayer` overlay), kept
+  minimal so the 3D board owns the screen:
   - **Top banner** — current player + prompt.
-  - **Right hub** — a scrolling **Game Log** over a **Players** list (color,
-    name, VP, resource/dev-card counts, knights, Longest Road / Largest Army).
-  - **Bottom action hub** — the active hand as resource chips plus chunky
-    **Roll / Road / Settlement / City / Buy Card / Play Card / Trade / End Turn**
-    buttons that enable only when the action is legal/affordable.
+  - **Players card** — a compact top-right card (color, name, VP,
+    resource/dev-card counts, knights, Longest Road / Largest Army).
+  - **Hand cards** — your resources are real card props floating bottom-left:
+    colored card faces with an icon chip and count, dimmed while empty.
+  - **Action cluster** — a compact auto-sized panel bottom-right with the
+    dice readout, **Log** toggle, and **Roll / End Turn** in terracotta over
+    a row of quiet build/trade buttons that enable only when the action is
+    legal/affordable. No full-width bars, no wasted space.
 
 ### Editor node tree for the HUD
 
@@ -32,13 +46,12 @@ The HUD is built in code, but the equivalent scene tree is:
 GameScreen (Control, anchors Full Rect, mouse_filter = Ignore)
 ├─ TopBanner (PanelContainer, top-center)        # StyleBoxFlat: white, radius 14
 │   └─ HBox → [ColorRect swatch] [prompt Label]
-├─ RightHub (PanelContainer, right dock 336px)
-│   └─ VBox
-│        ├─ Label "Game Log"
-│        ├─ PanelContainer (soft)  → RichTextLabel (scrolls, expand)
-│        ├─ Label "Players"
-│        └─ ScrollContainer (expand) → VBox (one PanelContainer row per player)
-├─ ActionHub (PanelContainer, bottom dock, right offset 348px)
+├─ PlayersCard (PanelContainer, top-right 300px, content-sized)
+│   └─ VBox (one PanelContainer row per player)
+├─ LogButton (Button "Log", bottom-right, toggle)
+├─ LogPanel (PanelContainer, hidden until toggled)
+│   └─ VBox → [Label "Game Log"] [RichTextLabel (scrolls)]
+├─ ActionHub (PanelContainer, bottom dock, full width)
 │   └─ VBox
 │        ├─ HBox (Hand)    → [Label "Hand:"] [resource chips ×5]
 │        └─ HBox (Actions) → [Dice Label] [chunky Buttons ×8]
@@ -47,24 +60,31 @@ GameScreen (Control, anchors Full Rect, mouse_filter = Ignore)
 
 ## 3D tabletop view
 
-The board is a 3D scene (`Game3DWorld`) and is the **default** in-game view:
+The board is a 3D scene (`Game3DWorld`) and is the **only** in-game view:
 
 - **Beveled, two-layer hex tiles** (dirt/stone base + colored top) generated
   from the engine's axial coordinates, with slightly randomized top vertices so
   the terrain isn't perfectly flat.
-- **Procedural terrain shaders** (`shaders/terrain.gdshader`) — noise-blended
-  grass/forest/field, rocky ore/brick, and wavy desert dunes (no textures).
+- **Procedural "textures"** (`shaders/terrain.gdshader`) — every tile type has
+  its own material pattern with emboss relief shading: patchy grass with blade
+  stipple, running-bond **brick courses with mortar**, wind-bent **wheat
+  furrows**, speckled rock, and grainy dunes — all noise-based, no image
+  files, in a **colonist.io-matched palette**.
+- **Sand frame** — a ring of low tan hexes hugs the island (the 3D take on
+  colonist.io's tan board border), with the calm blue ocean beyond it.
 - **Animated water shader** (`shaders/water.gdshader`) — TIME-driven wave
-  displacement and an animated foam ring at the shoreline.
-- **Micro-props**: clean low-poly primitives per resource — pine cone/trunk
-  trees on Wood, stacked brick prisms on Brick, fluffy capsule sheep on
-  Sheep, thin golden stalks on Wheat, blocky dark rocks on Ore — clustered
-  near each tile's center, well clear of the settlement circles on the
-  vertices.
+  displacement in colonist's friendly mid-blue.
+- **Real low-poly 3D models on every resource tile** (Golf With Your Friends
+  vibe) — [Kenney Nature Kit](https://kenney.nl/assets/nature-kit) (CC0)
+  trees on Wood, rocks on Ore, wheat crop rows on Wheat, grass tufts on
+  Sheep, and a cactus + flat stone on the Desert, plus procedural sheep and
+  brick piles. Props sit in a ring *around* the number token, so the numbers
+  stay clearly readable and nothing clips the settlement corners.
 - **Juicy feedback**: hexes lift on hover (Tween), settlements/roads/cities
   *pop in* with an elastic overshoot, and a translucent glowing **hologram**
   previews your placement under the cursor.
-- **Floating number tokens** that bob and slowly spin above each tile.
+- **Stamped number tokens** — cream discs lying flat on each tile with
+  Catan-style probability pips, colonist style (red 6/8).
 - **3D physics dice** (`scripts/dice/`) that can be physically thrown and read
   by their resting top face.
 
@@ -72,7 +92,6 @@ Camera (`CameraRig3D`): isometric ~55° tabletop view, **WASD / arrows** or
 **edge-scroll** to pan (clamped to the board), **scroll wheel** to zoom, and
 **middle-mouse drag** to orbit.
 
-> The 2D board is still available — launch with `HEXBOUND_2D=1` to use it.
 
 ### Renderer note (for the full toy look)
 
@@ -157,8 +176,7 @@ godot/
 │       ├── UITheme.gd         # shared StyleBoxFlat styling (panels/buttons/chips)
 │       ├── Main.gd            # screen router (3D by default)
 │       ├── MainMenu.gd, Lobby.gd
-│       ├── GameScreen.gd      # HUD, dialogs, interaction (2D + 3D)
-│       ├── BoardView.gd       # 2D board rendering + click picking
+│       ├── GameScreen.gd      # HUD overlay, dialogs, interaction
 │       ├── BoardView3D.gd     # 3D board: prisms, hover/pop animation, tokens
 │       ├── CameraRig3D.gd     # isometric pan/zoom/orbit camera
 │       └── Game3DWorld.gd     # assembles env + light + camera + board + HUD

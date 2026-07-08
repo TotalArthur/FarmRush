@@ -6,18 +6,17 @@ extends Control
 ## Layout (all built in code; equivalent editor node tree is in the README):
 ##   GameScreen (Control, full rect, mouse IGNORE so clicks reach the board)
 ##   ├─ TopBanner (PanelContainer, top-center)         -> prompt / whose turn
-##   ├─ RightHub (PanelContainer, right dock)
-##   │    └─ VBox
-##   │         ├─ "Game Log" + RichTextLabel (scrolls)
-##   │         └─ "Players" + ScrollContainer -> player rows
-##   ├─ ActionHub (PanelContainer, bottom dock)
+##   ├─ PlayersCard (PanelContainer, top-right, compact) -> player rows
+##   ├─ LogButton (Button, bottom-right)  -> toggles the LogPanel popup
+##   ├─ LogPanel (PanelContainer, hidden) -> "Game Log" + RichTextLabel
+##   ├─ ActionHub (PanelContainer, bottom dock, full width)
 ##   │    └─ VBox
 ##   │         ├─ Hand row (resource chips)
 ##   │         └─ Buttons row (Roll / End / Road / Settlement / City / Card / Trade)
 ##   └─ Toast + modal overlays (discard / steal / trade / dev / game over)
 
-var board                        # BoardView (2D) or BoardView3D (duck-typed)
-var external_board = null        # if set, HUD overlays this 3D board
+var board: BoardView3D           # the 3D board this HUD overlays
+var external_board = null        # set by Game3DWorld before add_child
 
 var prompt_label: Label
 var turn_swatch: ColorRect
@@ -38,7 +37,15 @@ var trade_btn: Button
 var end_btn: Button
 
 var _overlay: Control
+var _log_panel: PanelContainer
+var _log_btn: Button
 var _free_road_mode := false
+
+## UI state machine for the local player's turn. Derived from the engine
+## phase + whose turn it is; _apply_ui_phase() maps each state to exactly
+## the controls that matter, so the HUD always shows one clear next step.
+enum UIPhase { WAITING, SETUP, ROLL, MAIN, ROBBER, DISCARD, OVER }
+var ui_phase: int = UIPhase.WAITING
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -56,21 +63,7 @@ func _ready() -> void:
 #  Static layout
 # ===========================================================================
 func _build_ui() -> void:
-	if external_board != null:
-		board = external_board
-	else:
-		var bg := ColorRect.new()
-		bg.color = UITheme.BG_DEEP
-		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		add_child(bg)
-		board = BoardView.new()
-		board.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		board.offset_top = 64
-		board.offset_bottom = -160
-		board.offset_right = -348
-		add_child(board)
-
+	board = external_board
 	_build_top_banner()
 	_build_right_hub()
 	_build_action_hub()
@@ -87,7 +80,7 @@ func _build_ui() -> void:
 	add_child(toast_label)
 
 func _build_top_banner() -> void:
-	var panel := UITheme.make_panel(UITheme.PANEL, 14)
+	var panel := UITheme.hud_panel(14)
 	panel.anchor_left = 0.5
 	panel.anchor_right = 0.5
 	panel.offset_left = -260
@@ -106,93 +99,139 @@ func _build_top_banner() -> void:
 	prompt_label = Label.new()
 	prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	prompt_label.add_theme_font_size_override("font_size", 19)
-	prompt_label.add_theme_color_override("font_color", UITheme.INK)
+	prompt_label.add_theme_color_override("font_color", UITheme.HUD_TEXT)
 	row.add_child(prompt_label)
 
 func _build_right_hub() -> void:
-	var panel := UITheme.make_panel(UITheme.PANEL, 14)
+	# Compact players card, top-right — sized to content, board visible below.
+	var panel := UITheme.hud_panel(14)
 	panel.anchor_left = 1.0
 	panel.anchor_right = 1.0
-	panel.anchor_top = 0.0
-	panel.anchor_bottom = 1.0
-	panel.offset_left = -336
+	panel.offset_left = -312
 	panel.offset_right = -12
 	panel.offset_top = 12
-	panel.offset_bottom = -12
 	add_child(panel)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
+	vb.add_theme_constant_override("separation", 6)
 	panel.add_child(vb)
+	players_bar = VBoxContainer.new()
+	players_bar.add_theme_constant_override("separation", 6)
+	players_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_child(players_bar)
 
-	vb.add_child(UITheme.heading("Game Log", 18))
-	var log_panel := UITheme.make_panel(UITheme.PANEL_SOFT, 10)
-	log_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vb.add_child(log_panel)
+	# Game log lives in a popup panel, toggled by a small button (bottom-right)
+	# so it never eats board space unless the player asks for it.
+	_log_panel = UITheme.hud_panel(14)
+	_log_panel.anchor_left = 1.0
+	_log_panel.anchor_right = 1.0
+	_log_panel.anchor_top = 1.0
+	_log_panel.anchor_bottom = 1.0
+	_log_panel.offset_left = -392
+	_log_panel.offset_right = -12
+	_log_panel.offset_top = -390
+	_log_panel.offset_bottom = -136
+	_log_panel.visible = false
+	add_child(_log_panel)
+	var lv := VBoxContainer.new()
+	lv.add_theme_constant_override("separation", 6)
+	_log_panel.add_child(lv)
+	lv.add_child(UITheme.heading("Game Log", 16, UITheme.HUD_TEXT))
 	log_label = RichTextLabel.new()
 	log_label.bbcode_enabled = true
 	log_label.scroll_active = true
 	log_label.scroll_following = true
 	log_label.fit_content = false
 	log_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	log_label.add_theme_color_override("default_color", UITheme.INK)
-	log_panel.add_child(log_label)
+	log_label.add_theme_color_override("default_color", UITheme.HUD_TEXT_SOFT)
+	log_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	lv.add_child(log_label)
 
-	vb.add_child(UITheme.heading("Players", 18))
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vb.add_child(scroll)
-	players_bar = VBoxContainer.new()
-	players_bar.add_theme_constant_override("separation", 6)
-	players_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(players_bar)
+	# The toggle button itself lives in the bottom-right action cluster
+	# (added there by _build_action_hub).
+	_log_btn = UITheme.secondary_button("Log")
+	_log_btn.toggle_mode = true
+	_log_btn.toggled.connect(func(on: bool): _log_panel.visible = on)
 
 func _build_action_hub() -> void:
-	var panel := UITheme.make_panel(UITheme.PANEL, 14)
+	# Hand cards float bottom-left — the cards themselves ARE the UI, no
+	# full-width panel eating screen space.
+	hand_bar = HBoxContainer.new()
+	hand_bar.anchor_left = 0.0
+	hand_bar.anchor_right = 0.0
+	hand_bar.anchor_top = 1.0
+	hand_bar.anchor_bottom = 1.0
+	hand_bar.offset_left = 14
+	hand_bar.offset_top = -108
+	hand_bar.offset_bottom = -14
+	hand_bar.grow_horizontal = Control.GROW_DIRECTION_END
+	hand_bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	hand_bar.add_theme_constant_override("separation", 8)
+	add_child(hand_bar)
+
+	# Compact action cluster bottom-right; the panel auto-sizes to its content
+	# so there is zero wasted space.
+	var panel := UITheme.hud_panel(14)
+	panel.anchor_left = 1.0
+	panel.anchor_right = 1.0
 	panel.anchor_top = 1.0
 	panel.anchor_bottom = 1.0
-	panel.anchor_left = 0.0
-	panel.anchor_right = 1.0
-	panel.offset_left = 12
-	panel.offset_right = -348
-	panel.offset_top = -148
+	panel.offset_left = -12
+	panel.offset_right = -12
+	panel.offset_top = -12
 	panel.offset_bottom = -12
+	panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_child(panel)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 10)
+	vb.add_theme_constant_override("separation", 8)
 	panel.add_child(vb)
 
-	hand_bar = HBoxContainer.new()
-	hand_bar.alignment = BoxContainer.ALIGNMENT_CENTER
-	hand_bar.add_theme_constant_override("separation", 8)
-	vb.add_child(hand_bar)
-
-	actions_bar = HBoxContainer.new()
-	actions_bar.alignment = BoxContainer.ALIGNMENT_CENTER
-	actions_bar.add_theme_constant_override("separation", 8)
-	vb.add_child(actions_bar)
-
 	dice_label = Label.new()
-	dice_label.add_theme_font_size_override("font_size", 18)
-	dice_label.add_theme_color_override("font_color", UITheme.INK)
-	dice_label.custom_minimum_size = Vector2(96, 0)
+	dice_label.add_theme_font_size_override("font_size", 16)
+	dice_label.add_theme_color_override("font_color", UITheme.HUD_TEXT_SOFT)
 	dice_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
-	roll_btn = _btn("Roll Dice", UITheme.GREEN, _on_roll)
-	settle_btn = _btn("Settlement", UITheme.BLUE, func(): _start_pick("settlement"))
-	city_btn = _btn("City", UITheme.BLUE, func(): _start_pick("city"))
-	road_btn = _btn("Road", UITheme.BLUE, func(): _start_pick("road"))
-	dev_btn = _btn("Buy Card", UITheme.BLUE, _on_buy_dev)
-	play_dev_btn = _btn("Play Card", UITheme.SLATE, _on_play_dev)
-	trade_btn = _btn("Trade", UITheme.SLATE, _on_trade)
+	# One primary color (terracotta) for the turn-flow actions. Build actions
+	# are cost buttons that display their exact price and fade when the
+	# player's inventory can't cover it.
+	roll_btn = _btn("Roll Dice", UITheme.ACCENT, _on_roll)
+	settle_btn = _cbtn("Settlement", Consts.COST_SETTLEMENT, func(): _start_pick("settlement"))
+	city_btn = _cbtn("City", Consts.COST_CITY, func(): _start_pick("city"))
+	road_btn = _cbtn("Road", Consts.COST_ROAD, func(): _start_pick("road"))
+	dev_btn = _cbtn("Buy Card", Consts.COST_DEV, _on_buy_dev)
+	play_dev_btn = _sbtn("Play Card", _on_play_dev)
+	trade_btn = _sbtn("Trade", _on_trade)
 	end_btn = _btn("End Turn", UITheme.ACCENT, _on_end_turn)
 
-	actions_bar.add_child(dice_label)
-	for b in [roll_btn, road_btn, settle_btn, city_btn, dev_btn, play_dev_btn, trade_btn, end_btn]:
+	var row1 := HBoxContainer.new()
+	row1.alignment = BoxContainer.ALIGNMENT_END
+	row1.add_theme_constant_override("separation", 8)
+	row1.add_child(dice_label)
+	row1.add_child(_log_btn)
+	row1.add_child(play_dev_btn)
+	row1.add_child(roll_btn)
+	row1.add_child(end_btn)
+	vb.add_child(row1)
+
+	actions_bar = HBoxContainer.new()
+	actions_bar.alignment = BoxContainer.ALIGNMENT_END
+	actions_bar.add_theme_constant_override("separation", 8)
+	for b in [road_btn, settle_btn, city_btn, dev_btn, trade_btn]:
 		actions_bar.add_child(b)
+	vb.add_child(actions_bar)
 
 func _btn(text: String, color: Color, cb: Callable) -> Button:
 	var b := UITheme.make_button(text, color)
+	b.pressed.connect(cb)
+	return b
+
+func _sbtn(text: String, cb: Callable) -> Button:
+	var b := UITheme.secondary_button(text)
+	b.pressed.connect(cb)
+	return b
+
+func _cbtn(text: String, cost: Dictionary, cb: Callable) -> Button:
+	var b := UITheme.cost_button(text, cost)
 	b.pressed.connect(cb)
 	return b
 
@@ -234,29 +273,38 @@ func _refresh_players(s: GameState) -> void:
 
 func _player_row(s: GameState, p: Player, is_current: bool, is_view: bool) -> PanelContainer:
 	var row := PanelContainer.new()
-	var bg := UITheme.ACCENT.lightened(0.55) if is_current else UITheme.PANEL_SOFT
+	var bg := Color(UITheme.ACCENT.r, UITheme.ACCENT.g, UITheme.ACCENT.b, 0.32) \
+		if is_current else UITheme.HUD_BG_SOFT
 	row.add_theme_stylebox_override("panel", UITheme.flat(bg, 8))
 	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 8)
+	h.add_theme_constant_override("separation", 9)
 	row.add_child(h)
 	var sw := ColorRect.new()
 	sw.color = p.color
 	sw.custom_minimum_size = Vector2(20, 20)
 	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	h.add_child(sw)
+	# VP is THE score — it gets the big number.
+	var vp := Label.new()
+	vp.text = str(s.victory_points(p.id, is_view))
+	vp.add_theme_font_size_override("font_size", 26)
+	vp.add_theme_color_override("font_color", UITheme.HUD_TEXT)
+	vp.custom_minimum_size = Vector2(30, 0)
+	vp.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vp.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(vp)
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(col)
 	var name := Label.new()
 	name.text = ("➤ " if is_current else "") + p.name
-	name.add_theme_color_override("font_color", UITheme.INK)
+	name.add_theme_color_override("font_color", UITheme.HUD_TEXT)
 	name.add_theme_font_size_override("font_size", 15)
 	col.add_child(name)
 	var stats := Label.new()
 	var dev := p.dev_card_count() + _bought_count(p)
-	stats.text = "VP %d   Cards %d   Dev %d   Kn %d" % [
-		s.victory_points(p.id, is_view), p.total_resources(), dev, p.played_knights]
-	stats.add_theme_color_override("font_color", UITheme.INK_SOFT)
+	stats.text = "Cards %d   Dev %d   Knights %d" % [p.total_resources(), dev, p.played_knights]
+	stats.add_theme_color_override("font_color", UITheme.HUD_TEXT_SOFT)
 	stats.add_theme_font_size_override("font_size", 12)
 	col.add_child(stats)
 	# Bonus badges.
@@ -266,7 +314,7 @@ func _player_row(s: GameState, p: Player, is_current: bool, is_view: bool) -> Pa
 		if p.has_longest_road: b += "ROAD "
 		if p.has_largest_army: b += "ARMY"
 		badge.text = b
-		badge.add_theme_color_override("font_color", UITheme.ACCENT.darkened(0.1))
+		badge.add_theme_color_override("font_color", UITheme.ACCENT.lightened(0.2))
 		badge.add_theme_font_size_override("font_size", 11)
 		h.add_child(badge)
 	return row
@@ -283,30 +331,54 @@ func _refresh_hand(s: GameState) -> void:
 	if seat < 0 or seat >= s.players.size():
 		return
 	var p := s.players[seat]
-	var title := Label.new()
-	title.text = "Hand:"
-	title.add_theme_color_override("font_color", UITheme.INK)
-	title.add_theme_font_size_override("font_size", 16)
-	hand_bar.add_child(title)
 	for r in Consts.RES_ALL:
-		hand_bar.add_child(UITheme.resource_chip(r, p.resources.get(r, 0), true))
+		hand_bar.add_child(UITheme.hand_card(r, p.resources.get(r, 0)))
 
+## Map the engine phase + seat ownership onto the UI state machine.
+func _ui_phase_of(s: GameState) -> int:
+	if s.phase == Consts.Phase.GAME_OVER:
+		return UIPhase.OVER
+	if Game.active_human_seat() == -1:
+		return UIPhase.WAITING          # opponent's turn: HUD goes passive
+	match s.phase:
+		Consts.Phase.SETUP:
+			return UIPhase.SETUP
+		Consts.Phase.ROLL:
+			return UIPhase.ROLL
+		Consts.Phase.MAIN:
+			return UIPhase.MAIN
+		Consts.Phase.MOVE_ROBBER:
+			return UIPhase.ROBBER
+		Consts.Phase.DISCARD:
+			return UIPhase.DISCARD
+	return UIPhase.WAITING
+
+## One clear next step per state: ROLL shows only the roll button, MAIN shows
+## the full build/trade set with live affordability, everything else strips
+## the cluster down to the dice readout + log.
 func _refresh_actions(s: GameState) -> void:
+	ui_phase = _ui_phase_of(s)
 	var seat := Game.active_human_seat()
-	var my := seat != -1
-	var is_main := s.phase == Consts.Phase.MAIN and my
 	dice_label.text = ("Dice %d + %d" % [s.dice[0], s.dice[1]]) if s.has_rolled else "Dice —"
-	roll_btn.visible = s.phase == Consts.Phase.ROLL and my
+
+	roll_btn.visible = ui_phase == UIPhase.ROLL
+	var is_main := ui_phase == UIPhase.MAIN
 	for b in [settle_btn, city_btn, road_btn, dev_btn, trade_btn, end_btn]:
 		b.visible = is_main
-	play_dev_btn.visible = (is_main or (s.phase == Consts.Phase.ROLL and my)) and _has_playable_dev(s, seat)
+	play_dev_btn.visible = (ui_phase == UIPhase.MAIN or ui_phase == UIPhase.ROLL) \
+		and _has_playable_dev(s, seat)
 	if not is_main:
 		return
+
+	# Dynamic affordability: disable + fade against the player's exact
+	# inventory, and tint the specific missing resources red on each button.
 	var p := s.players[seat]
 	settle_btn.disabled = not (p.can_afford(Consts.COST_SETTLEMENT) and p.settlements_left > 0)
 	city_btn.disabled = not (p.can_afford(Consts.COST_CITY) and p.cities_left > 0)
 	road_btn.disabled = not (p.can_afford(Consts.COST_ROAD) and p.roads_left > 0)
 	dev_btn.disabled = not (p.can_afford(Consts.COST_DEV) and not s.dev_deck.is_empty())
+	for b in [settle_btn, city_btn, road_btn, dev_btn]:
+		UITheme.update_cost_button(b, p.resources)
 
 func _has_playable_dev(s: GameState, seat: int) -> bool:
 	if seat < 0 or s.dev_played_this_turn:
@@ -344,46 +416,46 @@ func _refresh_log(s: GameState) -> void:
 func _auto_board_mode(s: GameState) -> void:
 	var seat := Game.active_human_seat()
 	if seat == -1:
-		board.set_mode(BoardView.PickMode.NONE, -1)
+		board.set_mode(BoardView3D.PickMode.NONE, -1)
 		_close_overlay()
 		return
 	match s.phase:
 		Consts.Phase.SETUP:
-			board.set_mode(BoardView.PickMode.ROAD if s.setup_need_road else BoardView.PickMode.SETTLEMENT, seat)
+			board.set_mode(BoardView3D.PickMode.ROAD if s.setup_need_road else BoardView3D.PickMode.SETTLEMENT, seat)
 		Consts.Phase.MOVE_ROBBER:
-			board.set_mode(BoardView.PickMode.ROBBER, seat)
+			board.set_mode(BoardView3D.PickMode.ROBBER, seat)
 		Consts.Phase.DISCARD:
-			board.set_mode(BoardView.PickMode.NONE, seat)
+			board.set_mode(BoardView3D.PickMode.NONE, seat)
 			_open_discard_dialog(s, seat)
 		Consts.Phase.MAIN:
 			if _free_road_mode and s.free_roads > 0:
-				board.set_mode(BoardView.PickMode.ROAD, seat)
+				board.set_mode(BoardView3D.PickMode.ROAD, seat)
 			else:
 				_free_road_mode = false
-				if board.pick_mode == BoardView.PickMode.ROBBER:
-					board.set_mode(BoardView.PickMode.NONE, seat)
+				if board.pick_mode == BoardView3D.PickMode.ROBBER:
+					board.set_mode(BoardView3D.PickMode.NONE, seat)
 		_:
-			board.set_mode(BoardView.PickMode.NONE, seat)
+			board.set_mode(BoardView3D.PickMode.NONE, seat)
 
 func _start_pick(kind: String) -> void:
 	var seat := Game.active_human_seat()
 	if seat == -1:
 		return
 	match kind:
-		"settlement": board.set_mode(BoardView.PickMode.SETTLEMENT, seat)
-		"city": board.set_mode(BoardView.PickMode.CITY, seat)
-		"road": board.set_mode(BoardView.PickMode.ROAD, seat)
+		"settlement": board.set_mode(BoardView3D.PickMode.SETTLEMENT, seat)
+		"city": board.set_mode(BoardView3D.PickMode.CITY, seat)
+		"road": board.set_mode(BoardView3D.PickMode.ROAD, seat)
 
 func _on_vertex_picked(v: int) -> void:
 	var s := Game.state
 	if s.phase == Consts.Phase.SETUP:
 		Game.apply_action({ "type": "setup_settlement", "vertex": v })
-	elif board.pick_mode == BoardView.PickMode.CITY:
+	elif board.pick_mode == BoardView3D.PickMode.CITY:
 		Game.apply_action({ "type": "build_city", "vertex": v })
-		board.set_mode(BoardView.PickMode.NONE, board.acting_seat)
+		board.set_mode(BoardView3D.PickMode.NONE, board.acting_seat)
 	else:
 		Game.apply_action({ "type": "build_settlement", "vertex": v })
-		board.set_mode(BoardView.PickMode.NONE, board.acting_seat)
+		board.set_mode(BoardView3D.PickMode.NONE, board.acting_seat)
 
 func _on_edge_picked(e: int) -> void:
 	var s := Game.state
@@ -393,7 +465,7 @@ func _on_edge_picked(e: int) -> void:
 		Game.apply_action({ "type": "build_road", "edge": e })
 		if not (_free_road_mode and s.free_roads > 1):
 			_free_road_mode = false
-			board.set_mode(BoardView.PickMode.NONE, board.acting_seat)
+			board.set_mode(BoardView3D.PickMode.NONE, board.acting_seat)
 
 func _on_hex_picked(h: int) -> void:
 	var s := Game.state
@@ -416,7 +488,7 @@ func _on_buy_dev() -> void:
 	Game.apply_action({ "type": "buy_dev" })
 
 func _on_end_turn() -> void:
-	board.set_mode(BoardView.PickMode.NONE, -1)
+	board.set_mode(BoardView3D.PickMode.NONE, -1)
 	Game.apply_action({ "type": "end_turn" })
 
 # ===========================================================================

@@ -21,8 +21,9 @@ enum PickMode { NONE, SETTLEMENT, CITY, ROAD, ROBBER }
 # --- Tunables (world units) ------------------------------------------------
 const WORLD_SCALE := 0.02
 const TILE_HEIGHT := 0.5         # chunky vertical extrusion; also the rim/top
+const BEACH_HEIGHT := 0.3        # sand frame ring sits lower than the land tiles
 const WATER_Y := 0.12            # water sits partway up the tile sides
-const TOKEN_LIFT := 0.06         # token height above the solid hex top (stamped, not floating)
+const TOKEN_LIFT := 0.14         # token float height above the hex top
 const TILE_HOVER_LIFT := 0.12
 const PLACE_TIME := 0.5
 
@@ -103,6 +104,7 @@ func _build_board() -> void:
 	_clear_children_except_highlights()
 	_precompute_world(s)
 	_spawn_water()
+	_spawn_beach()
 
 	# One shared solid hex prism mesh for every tile.
 	_hex_mesh = _make_hex_prism(_r, TILE_HEIGHT)
@@ -219,20 +221,23 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	var rough_a := 0.5
 	var rough_b := 0.4
 	var metallic := 0.0
+	# GWYF-style palette: deep saturated colors with the a/b pair kept CLOSE
+	# together, so surfaces read as clean smooth color with soft variation
+	# instead of busy noise.
 	match res:
-		Consts.Res.WOOD:        # lush forest green
-			ca = Color("2f8f3b"); cb = Color("5cc24f"); pattern = 0; scale = 7.0
-		Consts.Res.SHEEP:       # bright pasture
-			ca = Color("7ec64a"); cb = Color("aee06a"); pattern = 0; scale = 6.0
-		Consts.Res.WHEAT:       # golden wheat
-			ca = Color("e6b52e"); cb = Color("ffd84a"); pattern = 0; scale = 8.0
-		Consts.Res.BRICK:       # bright terracotta
-			ca = Color("d2632f"); cb = Color("ef8c52"); pattern = 1; scale = 6.0
-		Consts.Res.ORE:         # clean stone with a gleam
-			ca = Color("7d8893"); cb = Color("b6bfc9"); pattern = 1; scale = 6.0
+		Consts.Res.WOOD:        # deep forest green
+			ca = Color("1d7a37"); cb = Color("339a47"); pattern = 0; scale = 5.0
+		Consts.Res.SHEEP:       # fresh lime pasture
+			ca = Color("84bd3a"); cb = Color("9dcf52"); pattern = 0; scale = 4.5
+		Consts.Res.WHEAT:       # rich golden field with crop furrows
+			ca = Color("e1a513"); cb = Color("f2c02c"); pattern = 4; scale = 8.0
+		Consts.Res.BRICK:       # warm clay with brick-course texture
+			ca = Color("a8481e"); cb = Color("e08348"); pattern = 3; scale = 6.0
+		Consts.Res.ORE:         # cool slate with a gleam
+			ca = Color("707d8a"); cb = Color("96a2ad"); pattern = 1; scale = 6.0
 			rough_a = 0.42; rough_b = 0.30; metallic = 0.30
 		_:                      # desert sand
-			ca = Color("e6cd86"); cb = Color("f6e6b0"); pattern = 2; scale = 5.0
+			ca = Color("d6bf7e"); cb = Color("e4d194"); pattern = 2; scale = 5.0
 	m.set_shader_parameter("color_a", ca)
 	m.set_shader_parameter("color_b", cb)
 	m.set_shader_parameter("noise_scale", scale)
@@ -241,14 +246,16 @@ func _terrain_material(res: int) -> ShaderMaterial:
 	m.set_shader_parameter("rough_b", rough_b)
 	m.set_shader_parameter("metallic_amt", metallic)
 	m.set_shader_parameter("hex_radius", _r)
-	# SSAO now does the deep crevice shadows, so ease off the in-shader darken.
-	m.set_shader_parameter("edge_darken", 0.16)
-	m.set_shader_parameter("rim_strength", 0.14)
+	# SSAO now does the deep crevice shadows, so ease off the in-shader darken;
+	# rim kept low so the board doesn't read overly bright/contrasty.
+	m.set_shader_parameter("edge_darken", 0.14)
+	m.set_shader_parameter("rim_strength", 0.03)
+	m.set_shader_parameter("bump_strength", 0.3)
 	_mat_cache[key] = m
 	return m
 
 # ===========================================================================
-#  Water (no island base — tiles sit directly in the water)
+#  Water + sand frame (no island base — tiles sit directly in the water)
 # ===========================================================================
 func _spawn_water() -> void:
 	var water := MeshInstance3D.new()
@@ -259,9 +266,71 @@ func _spawn_water() -> void:
 	water.mesh = plane
 	var wm := ShaderMaterial.new()
 	wm.shader = _water_shader
+	# colonist.io ocean: friendly mid-blue, deep enough to never look washed.
+	wm.set_shader_parameter("deep_color", Color("0f5589"))
+	wm.set_shader_parameter("shallow_color", Color("358dc4"))
 	water.material_override = wm
 	water.position = Vector3(0, WATER_Y, 0)
 	add_child(water)
+
+## Ring of low sand hexes hugging the island — the 3D take on colonist.io's
+## tan board frame. Shorter than the land tiles so the island reads raised,
+## taller than the water so it forms a visible beach shoreline.
+func _spawn_beach() -> void:
+	var beach_mesh := _make_hex_prism(_r, BEACH_HEIGHT)
+	var mat := ShaderMaterial.new()
+	mat.shader = _terrain_shader
+	mat.set_shader_parameter("color_a", Color("ab8f50"))
+	mat.set_shader_parameter("color_b", Color("cdb578"))
+	mat.set_shader_parameter("noise_scale", 4.0)
+	mat.set_shader_parameter("pattern_type", 2)
+	mat.set_shader_parameter("rough_a", 0.95)
+	mat.set_shader_parameter("rough_b", 0.85)
+	mat.set_shader_parameter("metallic_amt", 0.0)
+	mat.set_shader_parameter("hex_radius", _r)
+	mat.set_shader_parameter("edge_darken", 0.18)
+	mat.set_shader_parameter("rim_strength", 0.02)
+	# Pointy-top hexes: neighbors sit across the 6 edges at 60° steps,
+	# center-to-center distance sqrt(3) * radius.
+	var step := _r * sqrt(3.0)
+	var occupied := {}
+	for c in _hex_world:
+		occupied[_grid_key(Vector2(c.x, c.z))] = true
+	for c in _hex_world:
+		for k in range(6):
+			var ang := deg_to_rad(60.0 * k)
+			var p := Vector2(c.x, c.z) + Vector2(cos(ang), sin(ang)) * step
+			var key := _grid_key(p)
+			if occupied.has(key):
+				continue
+			occupied[key] = true
+			var m := MeshInstance3D.new()
+			m.mesh = beach_mesh
+			m.material_override = mat
+			m.position = Vector3(p.x, 0, p.y)
+			add_child(m)
+
+func _grid_key(p: Vector2) -> Vector2i:
+	return Vector2i(roundi(p.x * 10.0), roundi(p.y * 10.0))
+
+# ===========================================================================
+#  Production feedback: bounce + golden burst on every tile whose number was
+#  just rolled, so the player's eye snaps to what produced.
+# ===========================================================================
+func flash_production(total: int) -> void:
+	var s := Game.state
+	if s == null:
+		return
+	for h in range(s.board.hex_count()):
+		if s.hex_token[h] != total or h == s.robber_hex:
+			continue
+		var tile := _tile_nodes[h]
+		var tw := create_tween()
+		tw.tween_property(tile, "position:y", 0.22, 0.16) \
+			.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw.tween_property(tile, "position:y", 0.0, 0.5) \
+			.set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+		_burst(_hex_world[h] + Vector3(0, 0.4, 0), Color(1.0, 0.84, 0.30))
 
 # ===========================================================================
 #  Piece sync (bouncy pop-in)
@@ -276,18 +345,18 @@ func _sync_pieces() -> void:
 			node.position = _vertex_world[v]
 			add_child(node)
 			_settle_nodes[v] = { "node": node, "city": b["city"] }
-			_pop_in(node)
-			if _ready_for_fx:
-				_burst(node.position + Vector3(0, _r * 0.4, 0), col)
+			var fpos := node.position
+			_place_juice(node,
+				func(): if _ready_for_fx: _burst(fpos + Vector3(0, _r * 0.4, 0), col))
 		elif _settle_nodes[v]["city"] != b["city"]:
 			_settle_nodes[v]["node"].queue_free()
 			var node2 := _make_city(col)
 			node2.position = _vertex_world[v]
 			add_child(node2)
 			_settle_nodes[v] = { "node": node2, "city": true }
-			_pop_in(node2)
-			if _ready_for_fx:
-				_burst(node2.position + Vector3(0, _r * 0.4, 0), col)
+			var fpos2 := node2.position
+			_place_juice(node2,
+				func(): if _ready_for_fx: _burst(fpos2 + Vector3(0, _r * 0.4, 0), col))
 	for e in s.roads:
 		if not _road_nodes.has(e):
 			var edge := s.board.edges[e]
@@ -295,18 +364,32 @@ func _sync_pieces() -> void:
 			var rnode := _make_road(col2, _vertex_world[edge.x], _vertex_world[edge.y])
 			add_child(rnode)
 			_road_nodes[e] = rnode
-			_pop_in(rnode)
-			if _ready_for_fx:
-				_burst(rnode.position + Vector3(0, _r * 0.25, 0), col2)
+			var fpos3 := rnode.position
+			_place_juice(rnode,
+				func(): if _ready_for_fx: _burst(fpos3 + Vector3(0, _r * 0.25, 0), col2))
 	if _robber_node != null:
 		var target := _hex_world[s.robber_hex] + Vector3(_r * 0.3, 0.02, _r * 0.1)
 		var tw := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		tw.tween_property(_robber_node, "position", target, 0.4)
 
-func _pop_in(node: Node3D) -> void:
-	node.scale = Vector3.ZERO
-	var tw := create_tween().set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
-	tw.tween_property(node, "scale", Vector3.ONE, PLACE_TIME)
+## Placement juice: the piece falls from above (gravity-style ease-in),
+## squashes on impact, and springs back — squash & stretch sells the weight.
+const DROP_HEIGHT := 0.9
+
+func _place_juice(node: Node3D, on_impact: Callable = Callable()) -> void:
+	var final_pos := node.position
+	node.position = final_pos + Vector3(0, DROP_HEIGHT, 0)
+	node.scale = Vector3(0.72, 1.28, 0.72)          # stretched during the fall
+	var tw := create_tween()
+	tw.tween_property(node, "position", final_pos, 0.16) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	if on_impact.is_valid():
+		tw.tween_callback(on_impact)
+	tw.tween_property(node, "scale", Vector3(1.22, 0.72, 1.22), 0.07) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)   # impact squash
+	tw.tween_property(node, "scale", Vector3(0.94, 1.06, 0.94), 0.09)
+	tw.tween_property(node, "scale", Vector3.ONE, 0.11) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)   # settle
 
 # ===========================================================================
 #  Confetti burst on placement (player-colored, scales down to 0)
@@ -554,152 +637,175 @@ func _nearest_in(arr: Array, p: Vector3, max_d: float, allowed: Array) -> int:
 	return best
 
 func _make_token(number: int) -> Node3D:
-	var root := Node3D.new()
+	# Token3D self-corrects every frame: equal on-screen size at any distance
+	# plus a soft tilt toward the camera (see scripts/ui/Token3D.gd).
+	var root := Token3D.new()
 	var disc := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = _r * 0.34
-	cyl.bottom_radius = _r * 0.34
+	cyl.top_radius = _r * 0.38
+	cyl.bottom_radius = _r * 0.38
 	cyl.height = _r * 0.12
 	cyl.radial_segments = 24
 	disc.mesh = cyl
 	disc.material_override = _plastic(Color("f7f3e6"))
 	root.add_child(disc)
+	var hot := number == 6 or number == 8
+	var ink := Color("c0392b") if hot else Color("2c3e50")
 	var lbl := Label3D.new()
 	lbl.text = str(number)
-	lbl.font_size = 110
+	lbl.font_size = 76
 	lbl.pixel_size = _r * 0.006
 	# Stamped flat onto the disc, not billboarded — lay the glyph plane down
 	# into the X-Z plane (normal facing +Y) so it never rotates to face the
 	# camera and instead reads like it's printed on the token.
 	lbl.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 	lbl.rotation_degrees = Vector3(-90, 0, 0)
-	lbl.modulate = Color("c0392b") if (number == 6 or number == 8) else Color("2c3e50")
-	lbl.position = Vector3(0, cyl.height * 0.5 + 0.005, 0)
+	lbl.modulate = ink
+	lbl.position = Vector3(0, cyl.height * 0.5 + 0.006, -_r * 0.06)
 	root.add_child(lbl)
+	# Catan-style probability pips under the number (more pips = more likely),
+	# kept clear of the digits so wide numbers like 10/11/12 stay readable.
+	var pips := Label3D.new()
+	pips.text = "•".repeat(6 - abs(7 - number))
+	pips.font_size = 40
+	pips.pixel_size = _r * 0.0035
+	pips.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	pips.rotation_degrees = Vector3(-90, 0, 0)
+	pips.modulate = ink
+	pips.position = Vector3(0, cyl.height * 0.5 + 0.005, _r * 0.22)
+	root.add_child(pips)
 	return root
 
 ## ===========================================================================
-##  Low-poly cartoon props (clean primitive shapes, clustered near tile
-##  center so they never clip into the settlement circles on the vertices,
-##  which sit out at radius _r).
+##  Tile props — Kenney Nature Kit models (CC0, assets/models/) for the "Golf
+##  With Your Friends" cartoony low-poly look, plus procedural sheep/bricks.
+##  Arranged in a RING around the number token so the digits at the tile
+##  center stay clearly readable, and capped well inside the vertex circle
+##  (settlement markers sit out at radius _r).
 ## ===========================================================================
-const PROP_MAX_FRAC := 0.35   # keep every prop well inside the vertex ring
+const MODEL_DIR := "res://assets/models/"
+
+var _model_cache := {}
+
+func _model(name_: String) -> PackedScene:
+	if not _model_cache.has(name_):
+		_model_cache[name_] = load(MODEL_DIR + name_ + ".glb")
+	return _model_cache[name_]
+
+func _spawn_model(tile: Node3D, name_: String, pos: Vector3, scale_f: float, yaw: float) -> void:
+	var scene := _model(name_)
+	if scene == null:
+		return
+	var inst: Node3D = scene.instantiate()
+	inst.position = pos
+	inst.scale = Vector3.ONE * scale_f
+	inst.rotation.y = yaw
+	tile.add_child(inst)
 
 func _scatter_props(tile: MeshInstance3D, res: int, seed_val: int) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_val
 	match res:
 		Consts.Res.WOOD:
-			for i in range(rng.randi_range(3, 4)):
-				tile.add_child(_make_tree(_prop_pos(rng, 0.32)))
+			var kinds := ["tree_default", "tree_pineRoundA", "tree_detailed", "tree_pineRoundA", "tree_default"]
+			var i := 0
+			for pos in _prop_ring(rng, 5):
+				_spawn_model(tile, kinds[i % kinds.size()], pos,
+					_r * rng.randf_range(0.40, 0.50), rng.randf_range(0.0, TAU))
+				i += 1
 		Consts.Res.BRICK:
-			_make_brick_pile(tile, rng)
+			for pos in _prop_ring(rng, 2, 0.42, 0.5):
+				_make_brick_pile(tile, pos, rng)
 		Consts.Res.SHEEP:
-			for i in range(rng.randi_range(1, 2)):
-				tile.add_child(_make_sheep(_prop_pos(rng, 0.25)))
+			for pos in _prop_ring(rng, 2, 0.42, 0.52):
+				tile.add_child(_make_sheep(pos, rng))
+			for pos in _prop_ring(rng, 3, 0.55, 0.62):
+				_spawn_model(tile, "grass_large", pos,
+					_r * rng.randf_range(0.30, 0.40), rng.randf_range(0.0, TAU))
 		Consts.Res.WHEAT:
-			for i in range(rng.randi_range(5, 7)):
-				tile.add_child(_make_wheat_stalk(_prop_pos(rng, 0.33)))
+			for pos in _prop_ring(rng, 6, 0.44, 0.58):
+				_spawn_model(tile, "crops_wheatStageB", pos,
+					_r * rng.randf_range(0.34, 0.42), rng.randf_range(0.0, TAU))
 		Consts.Res.ORE:
-			for i in range(rng.randi_range(2, 3)):
-				tile.add_child(_make_ore_rock(_prop_pos(rng, 0.28), rng))
+			var rocks := ["rock_largeA", "rock_largeB", "rock_smallA"]
+			var j := 0
+			for pos in _prop_ring(rng, 3):
+				_spawn_model(tile, rocks[j % rocks.size()], pos,
+					_r * rng.randf_range(0.42, 0.55), rng.randf_range(0.0, TAU))
+				j += 1
 		_:
-			pass  # desert: bare sand, no props
+			# Desert: a lone cactus and a flat stone so it reads arid, not empty.
+			var ring := _prop_ring(rng, 2, 0.45, 0.55)
+			_spawn_model(tile, "cactus_short", ring[0], _r * 0.42, rng.randf_range(0.0, TAU))
+			_spawn_model(tile, "rock_smallFlatA", ring[1], _r * 0.45, rng.randf_range(0.0, TAU))
 
-func _prop_pos(rng: RandomNumberGenerator, max_frac: float) -> Vector3:
-	var ang := rng.randf_range(0.0, TAU)
-	var dist := rng.randf_range(0.0, minf(max_frac, PROP_MAX_FRAC)) * _r
-	return Vector3(cos(ang) * dist, TILE_HEIGHT, sin(ang) * dist)
+## Evenly spaced ring positions (with jitter) between r_min.._r*r_max — outside
+## the token disc (0.38 _r), inside the settlement corners (1.0 _r).
+func _prop_ring(rng: RandomNumberGenerator, count: int, r_min := 0.46, r_max := 0.56) -> Array:
+	var out: Array = []
+	var base := rng.randf_range(0.0, TAU)
+	for i in range(count):
+		var ang := base + TAU * float(i) / float(count) + rng.randf_range(-0.22, 0.22)
+		var dist := rng.randf_range(r_min, r_max) * _r
+		out.append(Vector3(cos(ang) * dist, TILE_HEIGHT, sin(ang) * dist))
+	return out
 
-func _make_tree(pos: Vector3) -> Node3D:
-	var root := Node3D.new()
-	root.position = pos
-	var trunk := MeshInstance3D.new()
-	var tcyl := CylinderMesh.new()
-	tcyl.top_radius = _r * 0.025
-	tcyl.bottom_radius = _r * 0.03
-	tcyl.height = _r * 0.12
-	trunk.mesh = tcyl
-	trunk.material_override = _plastic(Color("6b4226"))
-	trunk.position = Vector3(0, _r * 0.06, 0)
-	root.add_child(trunk)
-	var foliage := MeshInstance3D.new()
-	var cone := CylinderMesh.new()
-	cone.top_radius = 0.0
-	cone.bottom_radius = _r * 0.11
-	cone.height = _r * 0.22
-	cone.radial_segments = 8   # faceted low-poly look
-	foliage.mesh = cone
-	foliage.material_override = _plastic(Color("2f8f3b"))
-	foliage.position = Vector3(0, _r * 0.12 + _r * 0.11, 0)
-	root.add_child(foliage)
-	return root
-
-func _make_brick_pile(tile: MeshInstance3D, rng: RandomNumberGenerator) -> void:
-	var base := _prop_pos(rng, 0.2)
+func _make_brick_pile(tile: MeshInstance3D, base: Vector3, rng: RandomNumberGenerator) -> void:
 	var mat := _plastic(Color("a83226"))
-	var offsets: Array[Vector3] = [Vector3(-0.06, 0.0, 0.0), Vector3(0.06, 0.0, 0.0), Vector3(0.0, 0.0, 0.07)]
-	for off in offsets:
+	var brick := Vector3(_r * 0.17, _r * 0.08, _r * 0.10)
+	# 3 bricks on the ground, 2 stacked across them.
+	var layout := [
+		Vector3(-brick.x * 0.55, brick.y * 0.5, 0),
+		Vector3(brick.x * 0.55, brick.y * 0.5, 0),
+		Vector3(0, brick.y * 0.5, brick.z * 1.05),
+		Vector3(-brick.x * 0.3, brick.y * 1.5, brick.z * 0.3),
+		Vector3(brick.x * 0.35, brick.y * 1.5, brick.z * 0.35),
+	]
+	for off in layout:
 		var b := MeshInstance3D.new()
 		var box := BoxMesh.new()
-		box.size = Vector3(_r * 0.12, _r * 0.06, _r * 0.07)
+		box.size = brick
 		b.mesh = box
 		b.material_override = mat
-		b.position = base + off * _r + Vector3(0, _r * 0.03, 0)
-		b.rotation.y = rng.randf_range(-0.15, 0.15)
+		b.position = base + off
+		b.rotation.y = rng.randf_range(-0.18, 0.18)
 		tile.add_child(b)
-	var top := MeshInstance3D.new()
-	var box2 := BoxMesh.new()
-	box2.size = Vector3(_r * 0.12, _r * 0.06, _r * 0.07)
-	top.mesh = box2
-	top.material_override = mat
-	top.position = base + Vector3(0, _r * 0.09, 0)
-	top.rotation.y = rng.randf_range(-0.2, 0.2)
-	tile.add_child(top)
 
-func _make_sheep(pos: Vector3) -> Node3D:
+func _make_sheep(pos: Vector3, rng: RandomNumberGenerator) -> Node3D:
 	var root := Node3D.new()
 	root.position = pos
+	root.rotation.y = rng.randf_range(0.0, TAU)
+	root.scale = Vector3.ONE * 1.3
 	var body := MeshInstance3D.new()
 	var cap := CapsuleMesh.new()
-	cap.radius = _r * 0.08
-	cap.height = _r * 0.2
+	cap.radius = _r * 0.12
+	cap.height = _r * 0.30
 	body.mesh = cap
 	body.material_override = _plastic(Color("f5f5f0"))
 	body.rotation.z = deg_to_rad(90)
-	body.position = Vector3(0, _r * 0.09, 0)
+	body.position = Vector3(0, _r * 0.13, 0)
 	root.add_child(body)
 	var head := MeshInstance3D.new()
 	var sph := SphereMesh.new()
-	sph.radius = _r * 0.045
-	sph.height = _r * 0.09
+	sph.radius = _r * 0.065
+	sph.height = _r * 0.13
 	head.mesh = sph
 	head.material_override = _plastic(Color("2c2c2c"))
-	head.position = Vector3(_r * 0.11, _r * 0.09, 0)
+	head.position = Vector3(_r * 0.17, _r * 0.15, 0)
 	root.add_child(head)
+	# Four stubby legs so it reads as an animal, not a blob.
+	for lx in [-0.07, 0.07]:
+		for lz in [-0.05, 0.05]:
+			var leg := MeshInstance3D.new()
+			var lcyl := CylinderMesh.new()
+			lcyl.top_radius = _r * 0.018
+			lcyl.bottom_radius = _r * 0.018
+			lcyl.height = _r * 0.07
+			leg.mesh = lcyl
+			leg.material_override = _plastic(Color("2c2c2c"))
+			leg.position = Vector3(_r * lx, _r * 0.035, _r * lz)
+			root.add_child(leg)
 	return root
-
-func _make_wheat_stalk(pos: Vector3) -> MeshInstance3D:
-	var m := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = _r * 0.012
-	cyl.bottom_radius = _r * 0.018
-	cyl.height = _r * 0.2
-	m.mesh = cyl
-	m.material_override = _plastic(Color("e0b13a"))
-	m.position = pos + Vector3(0, _r * 0.1, 0)
-	return m
-
-func _make_ore_rock(pos: Vector3, rng: RandomNumberGenerator) -> MeshInstance3D:
-	var m := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	var s := _r * rng.randf_range(0.09, 0.14)
-	box.size = Vector3(s, s * rng.randf_range(0.7, 1.0), s * rng.randf_range(0.8, 1.1))
-	m.mesh = box
-	m.material_override = _plastic(Color("4a4d52"))
-	m.position = pos + Vector3(0, box.size.y * 0.5, 0)
-	m.rotation = Vector3(rng.randf_range(-0.2, 0.2), rng.randf_range(0.0, TAU), rng.randf_range(-0.2, 0.2))
-	return m
 
 func _make_marker(pos: Vector3, color: Color = Color(1, 1, 1)) -> MeshInstance3D:
 	var m := MeshInstance3D.new()
