@@ -19,7 +19,7 @@ var board: BoardView3D           # the 3D board this HUD overlays
 var external_board = null        # set by Game3DWorld before add_child
 
 var prompt_label: Label
-var turn_swatch: ColorRect
+var turn_swatch: TextureRect   # tinted player icon, recoloured per turn
 var players_bar: VBoxContainer
 var log_label: RichTextLabel
 var hand_bar: HBoxContainer
@@ -92,9 +92,7 @@ func _build_top_banner() -> void:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 10)
 	panel.add_child(row)
-	turn_swatch = ColorRect.new()
-	turn_swatch.custom_minimum_size = Vector2(20, 20)
-	turn_swatch.color = Color.WHITE
+	turn_swatch = UITheme.player_icon(Color.WHITE, 20)
 	row.add_child(turn_swatch)
 	prompt_label = Label.new()
 	prompt_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -279,11 +277,7 @@ func _player_row(s: GameState, p: Player, is_current: bool, is_view: bool) -> Pa
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 9)
 	row.add_child(h)
-	var sw := ColorRect.new()
-	sw.color = p.color
-	sw.custom_minimum_size = Vector2(20, 20)
-	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	h.add_child(sw)
+	h.add_child(UITheme.player_icon(p.color, 20))
 	# VP is THE score — it gets the big number.
 	var vp := Label.new()
 	vp.text = str(s.victory_points(p.id, is_view))
@@ -391,7 +385,7 @@ func _has_playable_dev(s: GameState, seat: int) -> bool:
 
 func _refresh_prompt(s: GameState) -> void:
 	var cur := s.players[s.current]
-	turn_swatch.color = cur.color
+	turn_swatch.modulate = cur.color
 	match s.phase:
 		Consts.Phase.SETUP:
 			prompt_label.text = "Place your %s." % ("road" if s.setup_need_road else "settlement") if Game.is_my_control() else "%s is placing…" % cur.name

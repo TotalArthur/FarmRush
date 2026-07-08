@@ -62,11 +62,13 @@ var _ready_for_fx := false       # suppress placement bursts during initial buil
 var _mat_cache := {}
 var _terrain_shader: Shader
 var _water_shader: Shader
+var _roof_shader: Shader
 var _hex_mesh: ArrayMesh
 
 func _ready() -> void:
 	_terrain_shader = load("res://shaders/terrain.gdshader")
 	_water_shader = load("res://shaders/water.gdshader")
+	_roof_shader = load("res://shaders/roof.gdshader")
 	_highlights = Node3D.new()
 	add_child(_highlights)
 	if Game.state != null:
@@ -202,9 +204,6 @@ const WALL_COL := Color("e8dcc2")     # warm plaster
 const TIMBER_COL := Color("7a5b40")   # dark wood (doors, poles, planks)
 const STONE_COL := Color("b7b1a4")    # stone base / chimneys
 const WINDOW_COL := Color("f7f0dd")   # bright shutter/window inset
-# Muted roof set — deliberately avoids the player colours (red/blue/orange/
-# white) so a roof never gets misread as ownership.
-const ROOF_COLS: Array[Color] = [Color("6f4a33"), Color("5c6670"), Color("a3814f")]
 
 ## Player-accent material: proper PBR (satin roughness, hint of metal) plus
 ## an emission boost when a RenderingDevice exists, so Forward+ bloom makes
@@ -221,6 +220,22 @@ func _accent(color: Color) -> StandardMaterial3D:
 		m.emission_enabled = true
 		m.emission = color
 		m.emission_energy_multiplier = 0.55
+	_mat_cache[key] = m
+	return m
+
+## Player-coloured roof: THE primary ownership signal (roofs are the most
+## visible surface at distance). shaders/roof.gdshader adds shingle courses
+## and roughness breakup so it reads as a tiled surface, not a flat tint;
+## the emission uniform carries the Forward+ bloom boost and stays 0 on GL.
+func _roof_mat(color: Color) -> ShaderMaterial:
+	var key := "r_" + color.to_html()
+	if _mat_cache.has(key):
+		return _mat_cache[key]
+	var m := ShaderMaterial.new()
+	m.shader = _roof_shader
+	m.set_shader_parameter("base_color", color)
+	m.set_shader_parameter("emission_strength",
+		0.40 if RenderingServer.get_rendering_device() != null else 0.0)
 	_mat_cache[key] = m
 	return m
 
@@ -907,7 +922,6 @@ func _add_banner(root: Node3D, color: Color, base_y: float) -> void:
 func _make_settlement(color: Color, variant: int = 0) -> Node3D:
 	var root := Node3D.new()
 	var s := _r
-	var roof_col: Color = ROOF_COLS[variant % ROOF_COLS.size()]
 	# Walls + timber door (slightly proud of the face) + window shutter.
 	root.add_child(_box_part(Vector3(0.42, 0.30, 0.36) * s, _plastic(WALL_COL), Vector3(0, 0.15, 0) * s))
 	root.add_child(_box_part(Vector3(0.10, 0.17, 0.02) * s, _plastic(TIMBER_COL), Vector3(0.07, 0.085, 0.185) * s))
@@ -928,7 +942,7 @@ func _make_settlement(color: Color, variant: int = 0) -> Node3D:
 			prism.size = Vector3(0.54, 0.16, 0.46) * s
 			rh = 0.16
 	roof.mesh = prism
-	roof.material_override = _plastic(roof_col)
+	roof.material_override = _roof_mat(color)   # roof = primary ownership signal
 	roof.position = Vector3(0, (0.30 + rh * 0.5) * s, 0)
 	root.add_child(roof)
 	# Stone chimney poking through one roof slope.
@@ -943,7 +957,6 @@ func _make_settlement(color: Color, variant: int = 0) -> Node3D:
 func _make_city(color: Color, variant: int = 0) -> Node3D:
 	var root := Node3D.new()
 	var s := _r
-	var roof_col: Color = ROOF_COLS[(variant + 1) % ROOF_COLS.size()]
 	# Main hall: stone plinth + plaster upper story.
 	root.add_child(_box_part(Vector3(0.62, 0.16, 0.42) * s, _plastic(STONE_COL), Vector3(0, 0.08, 0) * s))
 	root.add_child(_box_part(Vector3(0.58, 0.24, 0.38) * s, _plastic(WALL_COL), Vector3(0, 0.28, 0) * s))
@@ -951,7 +964,7 @@ func _make_city(color: Color, variant: int = 0) -> Node3D:
 	var prism := PrismMesh.new()
 	prism.size = Vector3(0.64, 0.20, 0.44) * s
 	roof.mesh = prism
-	roof.material_override = _plastic(roof_col)
+	roof.material_override = _roof_mat(color)   # roof = primary ownership signal
 	roof.position = Vector3(-0.04, 0.50, 0) * s
 	root.add_child(roof)
 	# Door + two hall windows.
@@ -967,7 +980,7 @@ func _make_city(color: Color, variant: int = 0) -> Node3D:
 	pyr.height = 0.18 * s
 	pyr.radial_segments = 4
 	cap.mesh = pyr
-	cap.material_override = _plastic(roof_col)
+	cap.material_override = _roof_mat(color)
 	cap.position = Vector3(0.23, 0.65, -0.04) * s
 	cap.rotation.y = PI * 0.25
 	root.add_child(cap)
@@ -1011,7 +1024,15 @@ func _make_ghost(node: Node3D) -> void:
 	for child in node.get_children():
 		if child is MeshInstance3D:
 			var src = child.material_override
-			var base_col: Color = src.albedo_color if src is StandardMaterial3D else Color.WHITE
+			var base_col := Color.WHITE
+			if src is StandardMaterial3D:
+				base_col = src.albedo_color
+			elif src is ShaderMaterial:
+				var p = src.get_shader_parameter("base_color")
+				if p is Color:
+					base_col = p
+				elif p is Vector3:
+					base_col = Color(p.x, p.y, p.z)
 			var mat := StandardMaterial3D.new()
 			mat.albedo_color = Color(base_col.r, base_col.g, base_col.b, 0.4)
 			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
